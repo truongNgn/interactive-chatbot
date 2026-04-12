@@ -1,0 +1,57 @@
+// Mirrors backend app/models.py
+
+export type Emotion = 'joy' | 'sad' | 'neutral' | 'thinking' | 'surprise' | 'anger'
+
+// Server → Client
+export interface AudioChunkPayload {
+  type: 'audio_chunk'
+  text: string
+  emotion: Emotion
+  audio_base64: string
+  duration_ms: number
+  visemes: VisemeKeyframe[]
+}
+
+export interface VisemeKeyframe {
+  time: number   // seconds from audio start
+  value: string  // viseme name e.g. "A", "O", "MBP", "rest"
+}
+
+export interface DonePayload {
+  type: 'done'
+}
+
+export interface ErrorPayload {
+  type: 'error'
+  message: string
+}
+
+export interface ClearQueuePayload {
+  type: 'clear_queue'
+}
+
+export type ServerMessage =
+  | AudioChunkPayload
+  | DonePayload
+  | ErrorPayload
+  | ClearQueuePayload
+
+// Client → Server
+export interface UserMessagePayload {
+  type: 'user_message'
+  text: string
+}
+
+export interface InterruptPayload {
+  type: 'interrupt'
+}
+
+// Chat history
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  emotion?: Emotion
+}
+
+export type WsStatus = 'connecting' | 'open' | 'closed' | 'error'
