@@ -1,120 +1,190 @@
 /**
- * Avatar — Stage 3: Load Ready Player Me .glb model và render với idle animation.
+ * Avatar — Stage 3 (Tier 3 model: Three.js facecap ARKit)
  *
- * Đặt file .glb vào: public/models/avatar.glb
- * Nếu model chưa có, hiển thị placeholder geometry.
+ * Model: /models/avatar.glb (facecap — 52 ARKit blendshapes)
+ * Nodes: head (SkinnedMesh w/ morphs), teeth, eyeLeft, eyeRight
  *
- * Stage 4 sẽ bổ sung:
- *   - morphTargetInfluences cho lip-sync (Rhubarb visemes)
- *   - Emotion blendshapes (smile, browRaise, v.v.)
+ * Responsibilities:
+ *  - Load GLB, traverse to find the morph-capable SkinnedMesh
+ *  - Register morphTargetInfluences in `avatarMorphRef` for Stage 4
+ *  - Idle animations: eye blink, subtle breathing (no clips in this model)
+ *  - Read `currentEmotion` from store → drive eyebrow / smile blendshapes
  */
 
-import { useRef, useEffect, Suspense } from 'react'
-import { useGLTF, useAnimations } from '@react-three/drei'
+import { useEffect, useRef, Suspense } from 'react'
+import { useGLTF } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useChatStore } from '../store/chatStore'
+import type { Emotion } from '../types'
 
 const AVATAR_PATH = '/models/avatar.glb'
 
 // ---------------------------------------------------------------------------
-// Placeholder: simple humanoid shape shown before GLB is available
+// Module-level ref — Stage 4 reads this to drive lip-sync morphs
 // ---------------------------------------------------------------------------
-function AvatarPlaceholder() {
-  const groupRef = useRef<THREE.Group>(null)
-  const isAISpeaking = useChatStore((s) => s.isAISpeaking)
+export const avatarMorphRef: {
+  mesh: THREE.SkinnedMesh | null
+  dict: Record<string, number>   // morphTargetDictionary
+  influences: number[]           // morphTargetInfluences (live array)
+} = { mesh: null, dict: {}, influences: [] }
 
-  useFrame(({ clock }) => {
-    if (!groupRef.current) return
-    const t = clock.getElapsedTime()
-    // Gentle idle bob
-    groupRef.current.position.y = Math.sin(t * 1.2) * 0.03
-    // Subtle speaking pulse on head
-    if (isAISpeaking) {
-      const pulse = 1 + Math.sin(t * 8) * 0.02
-      groupRef.current.scale.setScalar(pulse)
-    } else {
-      groupRef.current.scale.setScalar(1)
-    }
-  })
+/** Helper: set a single morph target by name (safe — no-op if unknown). */
+export function setMorph(name: string, value: number) {
+  const idx = avatarMorphRef.dict[name]
+  if (idx !== undefined) {
+    avatarMorphRef.influences[idx] = Math.max(0, Math.min(1, value))
+  }
+}
 
-  return (
-    <group ref={groupRef} position={[0, 0, 0]}>
-      {/* Head */}
-      <mesh position={[0, 1.6, 0]}>
-        <sphereGeometry args={[0.22, 32, 32]} />
-        <meshStandardMaterial color="#f0c8a0" roughness={0.6} />
-      </mesh>
-      {/* Eyes */}
-      <mesh position={[-0.07, 1.65, 0.21]}>
-        <sphereGeometry args={[0.03, 16, 16]} />
-        <meshStandardMaterial color="#2a2a2a" />
-      </mesh>
-      <mesh position={[0.07, 1.65, 0.21]}>
-        <sphereGeometry args={[0.03, 16, 16]} />
-        <meshStandardMaterial color="#2a2a2a" />
-      </mesh>
-      {/* Torso */}
-      <mesh position={[0, 1.1, 0]}>
-        <capsuleGeometry args={[0.18, 0.5, 8, 16]} />
-        <meshStandardMaterial color="#4a90d9" roughness={0.7} />
-      </mesh>
-    </group>
-  )
+/** Reset a list of morph targets to 0. */
+export function resetMorphs(names: string[]) {
+  for (const name of names) setMorph(name, 0)
 }
 
 // ---------------------------------------------------------------------------
-// Real GLB Avatar (Ready Player Me)
+// Emotion → blendshape presets (runs every frame via lerp in Avatar)
+// ---------------------------------------------------------------------------
+const EMOTION_MORPHS: Record<Emotion, Partial<Record<string, number>>> = {
+  joy:      { mouthSmile_L: 0.7, mouthSmile_R: 0.7, cheekSquint_L: 0.4, cheekSquint_R: 0.4 },
+  sad:      { mouthFrown_L: 0.6, mouthFrown_R: 0.6, browInnerUp: 0.5 },
+  neutral:  {},
+  thinking: { browInnerUp: 0.3, browDown_L: 0.2 },
+  surprise: { eyeWide_L: 0.8, eyeWide_R: 0.8, jawOpen: 0.3, browOuterUp_L: 0.6, browOuterUp_R: 0.6 },
+  anger:    { browDown_L: 0.7, browDown_R: 0.7, noseSneer_L: 0.4, noseSneer_R: 0.4 },
+}
+
+const ALL_EMOTION_KEYS = Array.from(
+  new Set(Object.values(EMOTION_MORPHS).flatMap(Object.keys)),
+)
+
+// ---------------------------------------------------------------------------
+// Idle blink timing
+// ---------------------------------------------------------------------------
+function nextBlinkDelay() {
+  return 2000 + Math.random() * 3000 // 2-5 seconds
+}
+
+// ---------------------------------------------------------------------------
+// Main GLB Avatar component
 // ---------------------------------------------------------------------------
 function GLBAvatar() {
-  const group = useRef<THREE.Group>(null)
-  const { scene, animations } = useGLTF(AVATAR_PATH)
-  const { actions, names } = useAnimations(animations, group)
+  const { scene } = useGLTF(AVATAR_PATH)
+  const groupRef = useRef<THREE.Group>(null)
 
-  // Play idle animation if available
+  // Blink state
+  const blinkTimer = useRef(nextBlinkDelay())
+  const blinkProgress = useRef(0) // 0 = open, 1 = closed, -1 = not blinking
+
+  const currentEmotion = useChatStore((s) => s.currentEmotion)
+  const emotionTarget = useRef<Partial<Record<string, number>>>({})
+
+  // --- Find and register the head SkinnedMesh ---
   useEffect(() => {
-    const idleName = names.find((n) => /idle/i.test(n)) ?? names[0]
-    if (idleName && actions[idleName]) {
-      actions[idleName]!.reset().fadeIn(0.5).play()
-    }
-    return () => {
-      if (idleName && actions[idleName]) {
-        actions[idleName]!.fadeOut(0.3)
+    let found = false
+    scene.traverse((obj) => {
+      if (found) return
+      const mesh = obj as THREE.SkinnedMesh
+      if (
+        mesh.isMesh &&
+        mesh.morphTargetDictionary &&
+        Object.keys(mesh.morphTargetDictionary).length > 10
+      ) {
+        avatarMorphRef.mesh = mesh
+        avatarMorphRef.dict = mesh.morphTargetDictionary
+        avatarMorphRef.influences = mesh.morphTargetInfluences as number[]
+        found = true
+        console.info(
+          '[Avatar] Morph mesh found:',
+          obj.name || '(unnamed)',
+          '— targets:',
+          Object.keys(mesh.morphTargetDictionary).length,
+        )
       }
+    })
+    if (!found) {
+      console.warn('[Avatar] No morph-capable mesh found in GLB.')
     }
-  }, [actions, names])
 
-  // Gentle idle bob when no animation clip
-  useFrame(({ clock }) => {
-    if (!group.current || names.length > 0) return
-    group.current.position.y = Math.sin(clock.getElapsedTime() * 1.2) * 0.03
+    return () => {
+      avatarMorphRef.mesh = null
+      avatarMorphRef.dict = {}
+      avatarMorphRef.influences = []
+    }
+  }, [scene])
+
+  // Update emotion target when store changes
+  useEffect(() => {
+    emotionTarget.current = EMOTION_MORPHS[currentEmotion] ?? {}
+  }, [currentEmotion])
+
+  useFrame((_, delta) => {
+    if (!avatarMorphRef.mesh) return
+
+    // --- 1. Blink ---
+    blinkTimer.current -= delta * 1000
+    if (blinkTimer.current <= 0) {
+      blinkProgress.current = 1 // start blink
+      blinkTimer.current = nextBlinkDelay()
+    }
+    if (blinkProgress.current > 0) {
+      // Close on first half (progress 1→0.5), open on second (0.5→0)
+      const closeness = blinkProgress.current > 0.5
+        ? (blinkProgress.current - 0.5) * 2
+        : blinkProgress.current * 2
+      setMorph('eyeBlink_L', closeness)
+      setMorph('eyeBlink_R', closeness)
+      blinkProgress.current = Math.max(0, blinkProgress.current - delta * 4)
+    }
+
+    // --- 2. Emotion morphs (lerp toward target) ---
+    for (const key of ALL_EMOTION_KEYS) {
+      const target = emotionTarget.current[key] ?? 0
+      const idx = avatarMorphRef.dict[key]
+      if (idx === undefined) continue
+      avatarMorphRef.influences[idx] = THREE.MathUtils.lerp(
+        avatarMorphRef.influences[idx],
+        target,
+        delta * 3,
+      )
+    }
+
+    // --- 3. Subtle head bob ---
+    if (groupRef.current) {
+      const t = performance.now() / 1000
+      groupRef.current.rotation.z = Math.sin(t * 0.6) * 0.008
+      groupRef.current.rotation.x = Math.sin(t * 0.4) * 0.005
+    }
   })
 
   return (
-    <group ref={group} dispose={null}>
+    <group ref={groupRef} dispose={null}>
       <primitive object={scene} />
     </group>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Exported Avatar: tries GLB, falls back to placeholder
+// Fallback placeholder (while GLB loads)
+// ---------------------------------------------------------------------------
+function AvatarFallback() {
+  return (
+    <mesh position={[0, 0, 0]}>
+      <sphereGeometry args={[0.3, 32, 32]} />
+      <meshStandardMaterial color="#f0c8a0" roughness={0.6} />
+    </mesh>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Exported component
 // ---------------------------------------------------------------------------
 export function Avatar() {
   return (
-    <Suspense fallback={<AvatarPlaceholder />}>
-      <GLBAvatarWithFallback />
+    <Suspense fallback={<AvatarFallback />}>
+      <GLBAvatar />
     </Suspense>
   )
 }
 
-function GLBAvatarWithFallback() {
-  try {
-    return <GLBAvatar />
-  } catch {
-    return <AvatarPlaceholder />
-  }
-}
-
-// Preload GLB in background
 useGLTF.preload(AVATAR_PATH)

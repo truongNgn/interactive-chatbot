@@ -1,64 +1,58 @@
 # Developer Log - Interactive 3D Chatbot
 
-## Task: Stage 3 — 3D Frontend (React + R3F)
-**Agent:** Claude (Senior AI Engineer)
-**Status:** Completed
-**Date:** 2026-04-07
-
-### Cấu trúc thư mục tạo ra:
-```
-frontend/
-├── src/
-│   ├── main.tsx
-│   ├── App.tsx                       # Layout: Scene (3D) + ChatInterface overlay
-│   ├── types/index.ts                # TypeScript types mirror backend models
-│   ├── store/chatStore.ts            # Zustand: wsStatus, audioQueue, emotion, messages
-│   ├── hooks/
-│   │   ├── useWebSocket.ts           # WS connect + auto-reconnect + message routing
-│   │   └── useAudioQueue.ts          # Web Audio API sequential playback
-│   └── components/
-│       ├── Avatar.tsx                # R3F GLB loader + placeholder geometry + idle anim
-│       ├── Scene.tsx                 # Canvas + PBR lights + Environment + OrbitControls
-│       └── ChatInterface.tsx         # Text input + message history + status bar + interrupt
-├── public/models/                    # Đặt avatar.glb vào đây (Ready Player Me)
-├── index.html
-├── package.json
-├── tsconfig.json
-└── vite.config.ts
-```
-
-### Quyết định kỹ thuật:
-
-**1. Audio Queue (`useAudioQueue`):**
-- Dùng Web Audio API (`AudioContext.decodeAudioData`) thay vì `<audio>` tag để kiểm soát chính xác timing cho lip-sync Stage 4
-- `AudioBufferSourceNode.onended` → tự động pop chunk tiếp theo → zero-gap playback giữa các câu
-- Text-only fallback: nếu `audio_base64 = ""` → cập nhật emotion, skip playback
-
-**2. Avatar (`Avatar.tsx`):**
-- `Suspense` + `useGLTF` load model từ `/models/avatar.glb`
-- Fallback `AvatarPlaceholder` (geometric shape) khi chưa có GLB
-- `morphTargetInfluences` đã sẵn sàng cho Stage 4 (Rhubarb visemes + emotion blendshapes)
-
-**3. WebSocket (`useWebSocket`):**
-- Auto-reconnect sau 3 giây khi disconnect
-- Route: `audio_chunk` → store.enqueueAudio | `clear_queue` → store.clearQueue
-- Interrupt: gửi `{"type":"interrupt"}` + local clearQueue để avatar dừng ngay
-
-**4. Build:**
-- `npm run build` → `✓ built in 6.28s` (TypeScript OK, no errors)
-- Bundle lớn (~1.1MB) là bình thường với Three.js — sẽ code-split ở Stage 5
-
-### Cách chạy:
-```bash
-cd frontend
-npm run dev        # http://localhost:5173
-```
-Backend phải chạy trước tại `localhost:8000` (Vite proxy `/ws` → backend).
-
-### Cần chuẩn bị trước Stage 4:
-1. Xuất avatar `.glb` từ [Ready Player Me](https://readyplayer.me) với ARKit blendshapes
-2. Đặt vào `frontend/public/models/avatar.glb`
-3. Kiểm tra model có `morphTargetDictionary` với các key viseme: `viseme_AA`, `viseme_O`, `viseme_PP`, v.v.
+> [!IMPORTANT]
+> **Quy tắc quản lý Log:**
+> 1. Mỗi khi bắt đầu một task mới, Agent **phải xóa các log của task cũ** để tiết kiệm dung lượng và giữ file súc tích.
+> 2. Luôn cập nhật trạng thái task hiện tại.
+> 3. Liên kết đến [BRAIN.md](BRAIN.md), [Gemini.md](gemini.md), và [Claude.md](claude.md).
 
 ---
-*Stage 4 (Animation & Lip-sync) — Rhubarb trên backend + morphTargetInfluences trên frontend.*
+
+## Task: Stage 3 (Tier 3) — Facecap Sample Avatar
+**Agent:** Claude (Senior AI Engineer)
+**Status:** Completed
+**Date:** 2026-05-04
+
+### Các thay đổi thực hiện:
+
+**Model:** `frontend/public/models/avatar.glb`
+- Nguồn: Three.js facecap sample (332KB, GLB v2)
+- **52 ARKit blendshapes** đầy đủ trên head mesh
+- Nodes: `head` (morph mesh), `teeth`, `eyeLeft`, `eyeRight`
+
+**Files thay đổi:**
+- `frontend/src/components/Avatar.tsx` — traverse scene tìm morph mesh, expose `avatarMorphRef` (module-level), idle blink, emotion blendshapes via lerp
+- `frontend/src/components/Scene.tsx` — camera gần hơn (`fov: 38, z: 1.4`) phù hợp head-only model
+- `frontend/src/types/visemeMapping.ts` [NEW] — bảng mapping Rhubarb phoneme (A-X) → ARKit blendshape weights
+
+**`avatarMorphRef` (cho Stage 4):**
+```ts
+export const avatarMorphRef = {
+  mesh: SkinnedMesh | null,
+  dict: Record<string, number>,   // morphTargetDictionary
+  influences: number[],           // morphTargetInfluences (live reference)
+}
+export function setMorph(name: string, value: number): void
+export function resetMorphs(names: string[]): void
+```
+
+**Rhubarb → ARKit mapping** (`visemeMapping.ts`):
+```
+A (ah)  → jawOpen:0.8, mouthFunnel:0.2, mouthLowerDown:0.4
+B (pbm) → mouthClose:0.9, mouthPress:0.4
+C (th)  → jawOpen:0.35, mouthLowerDown:0.6, mouthUpperUp:0.4
+D (ee)  → jawOpen:0.2, mouthSmile:0.5, mouthStretch:0.3
+E (eh)  → jawOpen:0.45, mouthStretch:0.4
+F (fv)  → mouthRollLower:0.6, jawOpen:0.1
+G (oh)  → jawOpen:0.55, mouthFunnel:0.6
+H (oo)  → mouthPucker:0.7, mouthFunnel:0.5, jawOpen:0.2
+X       → (silence, all 0)
+```
+
+### Ghi chú cho Agent tiếp theo (Stage 4):
+- Đừng quên xóa phần log này khi bắt đầu Stage 4!
+- Stage 4 cần: import `{ avatarMorphRef, setMorph, resetMorphs, VISEME_MAP, ALL_VISEME_KEYS }` từ Avatar và visemeMapping
+- Rhubarb output JSON: `[{ "start": 0.0, "end": 0.1, "value": "A" }, ...]`
+- Chạy Rhubarb trên backend (Windows binary hoặc Docker), expose kết quả trong `AudioChunkPayload.visemes`
+
+---
