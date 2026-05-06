@@ -87,7 +87,8 @@ export function useWebSocket() {
     return () => {
       isMounted.current = false
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
-      wsRef.current?.close()
+      const ws = wsRef.current
+      if (ws && ws.readyState !== WebSocket.CLOSED) ws.close()
     }
   }, [connect])
 
