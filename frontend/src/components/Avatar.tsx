@@ -13,8 +13,9 @@
 
 import { useEffect, useRef, Suspense } from 'react'
 import { useGLTF } from '@react-three/drei'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
+import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { useChatStore } from '../store/chatStore'
 import type { Emotion } from '../types'
 
@@ -69,7 +70,13 @@ function nextBlinkDelay() {
 // Main GLB Avatar component
 // ---------------------------------------------------------------------------
 function GLBAvatar() {
-  const { scene } = useGLTF(AVATAR_PATH)
+  const gl = useThree((s) => s.gl)
+  const { scene } = useGLTF(AVATAR_PATH, true, true, (loader) => {
+    const ktx2 = new KTX2Loader()
+    ktx2.setTranscoderPath('https://cdn.jsdelivr.net/npm/three/examples/jsm/libs/basis/')
+    ktx2.detectSupport(gl)
+    loader.setKTX2Loader(ktx2)
+  })
   const groupRef = useRef<THREE.Group>(null)
 
   // Blink state
