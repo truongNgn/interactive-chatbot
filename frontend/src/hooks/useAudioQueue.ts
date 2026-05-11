@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useChatStore } from '../store/chatStore'
 import type { AudioChunkPayload } from '../types'
+import { startLipSync, stopLipSync } from './useLipSync'
 
 function base64ToArrayBuffer(b64: string): ArrayBuffer {
   const binary = atob(b64)
@@ -111,12 +112,17 @@ export function useAudioQueue() {
       sourceRef.current = source
 
       source.onended = () => {
+        stopLipSync()
         isPlayingRef.current = false
         sourceRef.current = null
         playNext()
       }
 
       source.start(0)
+      // Start lip-sync AFTER source.start() so ctx.currentTime is the correct baseline
+      if (chunk.visemes.length > 0) {
+        startLipSync(chunk.visemes, ctx)
+      }
     } catch (err) {
       console.error('[AudioQueue] Playback error:', err)
       isPlayingRef.current = false
@@ -144,6 +150,7 @@ export function useAudioQueue() {
       try { sourceRef.current.stop() } catch { /* already stopped */ }
       sourceRef.current = null
     }
+    stopLipSync()
     isPlayingRef.current = false
     setIsAISpeaking(false)
   }, [setIsAISpeaking])

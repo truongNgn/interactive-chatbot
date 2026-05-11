@@ -15,6 +15,7 @@ import * as THREE from 'three'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { useChatStore } from '../store/chatStore'
 import type { Emotion } from '../types'
+import { tickLipSync, ALL_VISEME_KEYS } from '../hooks/useLipSync'
 
 const AVATAR_PATH = '/models/fashion_girl_asian_girl.glb'
 
@@ -256,6 +257,26 @@ function GLBAvatar() {
         target,
         delta * 3,
       )
+    }
+
+    // --- 3. Lip-sync viseme morphs (lerp toward current Rhubarb cue weights) ---
+    const visemeWeights = tickLipSync()
+    for (const key of ALL_VISEME_KEYS) {
+      const target = (visemeWeights as Record<string, number>)[key] ?? 0
+      const idx = avatarMorphRef.dict[key]
+      if (idx === undefined) continue
+      avatarMorphRef.influences[idx] = THREE.MathUtils.lerp(
+        avatarMorphRef.influences[idx],
+        target,
+        delta * 14, // faster lerp than emotion (~14 vs 3) for snappy lip-sync
+      )
+    }
+
+    // --- 4. Subtle head bob ---
+    if (groupRef.current) {
+      const t = performance.now() / 1000
+      groupRef.current.rotation.z = Math.sin(t * 0.6) * 0.008
+      groupRef.current.rotation.x = Math.sin(t * 0.4) * 0.005
     }
   })
 

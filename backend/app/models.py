@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Emotion(str, Enum):
@@ -41,18 +41,21 @@ class TextChunkPayload(BaseModel):
     emotion: Emotion
 
 
+class VisemeEntry(BaseModel):
+    """One Rhubarb mouth-cue: time range + phoneme value (A-H, X)."""
+    start: float
+    end: float
+    value: str
+
+
 class AudioChunkPayload(BaseModel):
-    """
-    Sent after TTS synthesis. Contains base64-encoded audio + metadata.
-    visemes: placeholder list — will be populated by Rhubarb in Stage 4.
-    audio_base64: empty string when TTS is not configured (text-only fallback).
-    """
+    """Sent after TTS synthesis. Contains base64-encoded audio + viseme keyframes."""
     type: str = "audio_chunk"
     text: str
     emotion: Emotion
     audio_base64: str
-    duration_ms: int = 0          # filled in Stage 4 from audio metadata
-    visemes: list = []            # filled in Stage 4 by Rhubarb
+    duration_ms: int = 0
+    visemes: list[VisemeEntry] = Field(default_factory=list)
 
 
 class ErrorPayload(BaseModel):

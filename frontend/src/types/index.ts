@@ -13,8 +13,9 @@ export interface AudioChunkPayload {
 }
 
 export interface VisemeKeyframe {
-  time: number   // seconds from audio start
-  value: string  // viseme name e.g. "A", "O", "MBP", "rest"
+  start: number  // seconds from audio start
+  end: number    // seconds from audio start
+  value: string  // Rhubarb phoneme: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "X"
 }
 
 export interface DonePayload {
