@@ -35,6 +35,8 @@ export type ServerMessage =
   | DonePayload
   | ErrorPayload
   | ClearQueuePayload
+  | ModelChangedPayload
+  | ConnectedPayload
 
 // Client → Server
 export interface UserMessagePayload {
@@ -55,3 +57,20 @@ export interface ChatMessage {
 }
 
 export type WsStatus = 'connecting' | 'open' | 'closed' | 'error'
+
+export type LlmProvider = 'ollama' | 'deepseek'
+
+export interface SetModelPayload {
+  type: 'set_model'
+  provider: LlmProvider
+}
+
+export interface ModelChangedPayload {
+  type: 'model_changed'
+  provider: LlmProvider
+}
+
+export interface ConnectedPayload {
+  type: 'connected'
+  provider: LlmProvider
+}

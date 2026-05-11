@@ -5,9 +5,13 @@
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useChatStore } from '../store/chatStore'
-import { useWebSocket } from '../hooks/useWebSocket'
-import { useAudioQueue } from '../hooks/useAudioQueue'
-import type { Emotion } from '../types'
+import type { Emotion, LlmProvider } from '../types'
+
+interface ChatInterfaceProps {
+  sendMessage: (text: string) => void
+  sendInterrupt: () => void
+  sendSetModel: (provider: LlmProvider) => void
+}
 
 // ---------------------------------------------------------------------------
 // Emotion badge colors
@@ -31,15 +35,11 @@ const STATUS_COLORS = {
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-export function ChatInterface() {
+export function ChatInterface({ sendMessage, sendInterrupt, sendSetModel }: ChatInterfaceProps) {
   const [inputText, setInputText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const { messages, wsStatus, isAISpeaking, currentEmotion } = useChatStore()
-  const { sendMessage, sendInterrupt } = useWebSocket()
-
-  // Boot audio queue listener
-  useAudioQueue()
+  const { messages, wsStatus, isAISpeaking, currentEmotion, llmProvider } = useChatStore()
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -71,6 +71,13 @@ export function ChatInterface() {
     [handleSend],
   )
 
+  const handleProviderChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      sendSetModel(e.target.value as LlmProvider)
+    },
+    [sendSetModel],
+  )
+
   return (
     <div style={styles.overlay}>
       {/* Status bar */}
@@ -84,6 +91,18 @@ export function ChatInterface() {
         <span style={styles.statusText}>
           {wsStatus === 'open' ? 'Connected' : wsStatus}
         </span>
+
+        {/* Model switcher */}
+        <select
+          value={llmProvider}
+          onChange={handleProviderChange}
+          disabled={wsStatus !== 'open'}
+          style={styles.modelSelect}
+          title="Switch LLM provider"
+        >
+          <option value="ollama">Ollama (Llama 3)</option>
+          <option value="deepseek">DeepSeek v3</option>
+        </select>
 
         {isAISpeaking && (
           <span
@@ -153,7 +172,7 @@ export function ChatInterface() {
 }
 
 // ---------------------------------------------------------------------------
-// Inline styles (no external CSS dependency for Stage 3)
+// Inline styles
 // ---------------------------------------------------------------------------
 const styles: Record<string, React.CSSProperties> = {
   overlay: {
@@ -184,6 +203,17 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#9ca3af',
     fontSize: 12,
     textTransform: 'capitalize',
+  },
+  modelSelect: {
+    background: 'rgba(15,23,42,0.85)',
+    color: '#e2e8f0',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: 6,
+    padding: '3px 8px',
+    fontSize: 12,
+    cursor: 'pointer',
+    outline: 'none',
+    backdropFilter: 'blur(8px)',
   },
   emotionBadge: {
     fontSize: 11,

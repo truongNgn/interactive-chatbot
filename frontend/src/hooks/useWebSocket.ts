@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useChatStore } from '../store/chatStore'
-import type { InterruptPayload, ServerMessage, UserMessagePayload } from '../types'
+import type { InterruptPayload, LlmProvider, ServerMessage, SetModelPayload, UserMessagePayload } from '../types'
 
 const WS_URL = 'ws://localhost:8000/ws/chat'
 const RECONNECT_DELAY_MS = 3000
@@ -10,7 +10,7 @@ export function useWebSocket() {
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isMounted = useRef(true)
 
-  const { setWsStatus, addMessage, enqueueAudio, clearQueue } = useChatStore.getState()
+  const { setWsStatus, addMessage, enqueueAudio, clearQueue, setLlmProvider } = useChatStore.getState()
 
   const connect = useCallback(() => {
     if (!isMounted.current) return
@@ -68,6 +68,11 @@ export function useWebSocket() {
           clearQueue()
           break
 
+        case 'connected':
+        case 'model_changed':
+          setLlmProvider(msg.provider)
+          break
+
         case 'error':
           console.error('[WS] Server error:', msg.message)
           addMessage({
@@ -78,7 +83,7 @@ export function useWebSocket() {
           break
       }
     }
-  }, [setWsStatus, addMessage, enqueueAudio, clearQueue])
+  }, [setWsStatus, addMessage, enqueueAudio, clearQueue, setLlmProvider])
 
   useEffect(() => {
     isMounted.current = true
@@ -87,7 +92,8 @@ export function useWebSocket() {
     return () => {
       isMounted.current = false
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
-      wsRef.current?.close()
+      const ws = wsRef.current
+      if (ws && ws.readyState !== WebSocket.CLOSED) ws.close()
     }
   }, [connect])
 
@@ -109,5 +115,12 @@ export function useWebSocket() {
     clearQueue()
   }, [clearQueue])
 
-  return { sendMessage, sendInterrupt }
+  const sendSetModel = useCallback((provider: LlmProvider) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    const payload: SetModelPayload = { type: 'set_model', provider }
+    ws.send(JSON.stringify(payload))
+  }, [])
+
+  return { sendMessage, sendInterrupt, sendSetModel }
 }
