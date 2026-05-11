@@ -8,51 +8,56 @@
 
 ---
 
-## Task: Stage 3 (Tier 3) — Facecap Sample Avatar
+## Task: Stage 5 — Docker Compose Orchestration
 **Agent:** Claude (Senior AI Engineer)
 **Status:** Completed
-**Date:** 2026-05-04
+**Date:** 2026-05-10
 
-### Các thay đổi thực hiện:
+### Các file được tạo:
 
-**Model:** `frontend/public/models/avatar.glb`
-- Nguồn: Three.js facecap sample (332KB, GLB v2)
-- **52 ARKit blendshapes** đầy đủ trên head mesh
-- Nodes: `head` (morph mesh), `teeth`, `eyeLeft`, `eyeRight`
+| File | Mô tả |
+|---|---|
+| `backend/Dockerfile` | Python 3.12-slim, cài requirements, expose 8000 |
+| `backend/.dockerignore` | Exclude `__pycache__`, `.env`, venv |
+| `frontend/Dockerfile` | Multi-stage: Node 20 build → Nginx 1.27 serve |
+| `frontend/nginx.conf` | SPA fallback + `/ws` WebSocket proxy → backend:8000 |
+| `frontend/.dockerignore` | Exclude `node_modules`, `dist` |
+| `docker-compose.yml` | 3 services: ollama + backend + frontend |
+| `backend/.env.example` | Cập nhật thêm `RHUBARB_PATH` |
 
-**Files thay đổi:**
-- `frontend/src/components/Avatar.tsx` — traverse scene tìm morph mesh, expose `avatarMorphRef` (module-level), idle blink, emotion blendshapes via lerp
-- `frontend/src/components/Scene.tsx` — camera gần hơn (`fov: 38, z: 1.4`) phù hợp head-only model
-- `frontend/src/types/visemeMapping.ts` [NEW] — bảng mapping Rhubarb phoneme (A-X) → ARKit blendshape weights
+### Cách chạy:
 
-**`avatarMorphRef` (cho Stage 4):**
-```ts
-export const avatarMorphRef = {
-  mesh: SkinnedMesh | null,
-  dict: Record<string, number>,   // morphTargetDictionary
-  influences: number[],           // morphTargetInfluences (live reference)
-}
-export function setMorph(name: string, value: number): void
-export function resetMorphs(names: string[]): void
+```bash
+# 1. Tạo file .env từ example
+cp backend/.env.example backend/.env
+# Điền ELEVENLABS_API_KEY và các biến cần thiết
+
+# 2. Build & start toàn bộ stack
+docker compose up --build
+
+# 3. Pull Ollama model lần đầu (chạy trong container đang chạy)
+docker exec chatbot-ollama ollama pull llama3:8b
+
+# 4. Truy cập
+# Frontend: http://localhost
+# Backend API: http://localhost:8000/health
 ```
 
-**Rhubarb → ARKit mapping** (`visemeMapping.ts`):
-```
-A (ah)  → jawOpen:0.8, mouthFunnel:0.2, mouthLowerDown:0.4
-B (pbm) → mouthClose:0.9, mouthPress:0.4
-C (th)  → jawOpen:0.35, mouthLowerDown:0.6, mouthUpperUp:0.4
-D (ee)  → jawOpen:0.2, mouthSmile:0.5, mouthStretch:0.3
-E (eh)  → jawOpen:0.45, mouthStretch:0.4
-F (fv)  → mouthRollLower:0.6, jawOpen:0.1
-G (oh)  → jawOpen:0.55, mouthFunnel:0.6
-H (oo)  → mouthPucker:0.7, mouthFunnel:0.5, jawOpen:0.2
-X       → (silence, all 0)
+### Kiến trúc mạng trong Docker:
+- `frontend` (Nginx:80) → proxy `/ws` → `backend:8000`
+- `backend` → `ollama:11434` (qua Docker internal network)
+- Ollama model data được persist qua volume `ollama_data`
+
+### Lip-sync trong Docker (optional):
+```yaml
+# Uncomment trong docker-compose.yml:
+volumes:
+  - /path/to/rhubarb:/usr/local/bin/rhubarb:ro
+# Thêm vào backend/.env:
+RHUBARB_PATH=/usr/local/bin/rhubarb
 ```
 
-### Ghi chú cho Agent tiếp theo (Stage 4):
-- Đừng quên xóa phần log này khi bắt đầu Stage 4!
-- Stage 4 cần: import `{ avatarMorphRef, setMorph, resetMorphs, VISEME_MAP, ALL_VISEME_KEYS }` từ Avatar và visemeMapping
-- Rhubarb output JSON: `[{ "start": 0.0, "end": 0.1, "value": "A" }, ...]`
-- Chạy Rhubarb trên backend (Windows binary hoặc Docker), expose kết quả trong `AudioChunkPayload.visemes`
+### GPU support (NVIDIA):
+Uncomment phần `deploy.resources.reservations` trong service `ollama` của `docker-compose.yml`.
 
 ---

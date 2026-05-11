@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     elevenlabs_model_id: str = "eleven_turbo_v2_5"
     elevenlabs_output_format: str = "mp3_44100_128"
 
+    # Rhubarb Lip-Sync (Stage 4)
+    # Set to the path of rhubarb.exe (Windows) or rhubarb binary (Linux/Mac).
+    # Leave empty to disable lip-sync (visemes will be []).
+    rhubarb_path: str = ""
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8000

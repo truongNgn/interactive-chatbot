@@ -20,19 +20,40 @@ Chào Agent, đây là "bộ não" của dự án. File này chứa đựng cấ
 ### 📁 Sơ đồ thư mục (File Tree)
 ```
 interactive-chatbot/
-├── backend/                  # Logic xử lý AI & TTS
-├── frontend/                 # Giao diện React & 3D Scene
-│   ├── src/
-│   │   ├── components/       # Avatar, Scene, ChatInterface
-│   │   ├── hooks/            # useWebSocket, useAudioQueue
-│   │   ├── store/            # chatStore (Zustand)
-│   │   └── types/            # TypeScript definitions
-│   └── public/models/        # Chứa avatar.glb
-├── gemini.md                 # Guideline cho Gemini
-├── claude.md                 # Guideline cho Claude
-├── BRAIN.md                  # Tài liệu cấu trúc & bộ não dự án
-├── developer_log.md          # Nhật ký công việc (Auto-pruning)
-└── docker-compose.yml        # Orchestration (Stage 5)
+├── backend/
+│   └── app/
+│       ├── config.py           # Settings (rhubarb_path mới từ Stage 4)
+│       ├── models.py           # Pydantic models (VisemeEntry từ Stage 4)
+│       ├── orchestrator.py     # LLM stream → sentence buffering
+│       ├── tts_handler.py      # ElevenLabs TTS
+│       ├── rhubarb_handler.py  # [Stage 4] Rhubarb lip-sync wrapper
+│       └── main.py             # FastAPI WebSocket pipeline
+├── frontend/
+│   └── src/
+│       ├── components/
+│       │   ├── Avatar.tsx      # 3D avatar + emotion + lip-sync (useFrame)
+│       │   ├── Scene.tsx       # R3F Canvas setup
+│       │   └── ChatInterface.tsx
+│       ├── hooks/
+│       │   ├── useWebSocket.ts
+│       │   ├── useAudioQueue.ts  # Audio playback + startLipSync/stopLipSync
+│       │   └── useLipSync.ts     # [Stage 4] lipSyncState, tickLipSync
+│       ├── store/chatStore.ts
+│       └── types/
+│           ├── index.ts          # VisemeKeyframe {start, end, value}
+│           └── visemeMapping.ts  # VISEME_MAP (Rhubarb → ARKit weights)
+│   └── public/models/avatar.glb  # Three.js facecap (52 ARKit blendshapes)
+├── gemini.md
+├── claude.md
+├── BRAIN.md
+├── developer_log.md
+├── docker-compose.yml          # [Stage 5] ollama + backend + frontend
+├── backend/
+│   ├── Dockerfile              # [Stage 5] python:3.12-slim
+│   └── .dockerignore
+└── frontend/
+    ├── Dockerfile              # [Stage 5] multi-stage: node build → nginx
+    └── nginx.conf              # [Stage 5] SPA + /ws WebSocket proxy → backend:8000
 ```
 
 ## 🧠 Quy tắc cập nhật Brain
@@ -40,4 +61,4 @@ interactive-chatbot/
 2. Luôn giữ sơ đồ thư mục và danh sách công nghệ ở trạng thái cập nhật.
 
 ---
-*Cập nhật lần cuối: 2026-05-04*
+*Cập nhật lần cuối: 2026-05-10 (Stage 5 — Docker Compose Orchestration hoàn thành)*

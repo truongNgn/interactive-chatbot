@@ -13,8 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.llm_handler import LLMHandler
-from app.models import AudioChunkPayload, DonePayload, ErrorPayload
+from app.models import AudioChunkPayload, DonePayload, ErrorPayload, VisemeEntry
 from app.orchestrator import Orchestrator
+from app.rhubarb_handler import get_visemes
 from app.tts_handler import BaseTTSHandler, audio_to_base64, get_tts_handler
 
 logging.basicConfig(
@@ -105,19 +106,26 @@ async def websocket_chat(websocket: WebSocket):
                 if chunk is None:
                     break
 
-                # Stage 2: synthesize audio (async, non-blocking)
+                # Stage 2: synthesize audio
                 try:
                     audio_bytes = await tts.synthesize(chunk)
                 except Exception as exc:
                     logger.error("TTS error for chunk %r: %s", chunk.text[:40], exc)
-                    # Graceful fallback: gửi audio rỗng, client hiển thị text
                     audio_bytes = b""
+
+                # Stage 4: extract visemes from audio via Rhubarb (concurrent-safe)
+                viseme_dicts = await get_visemes(audio_bytes)
+                visemes = [VisemeEntry(**v) for v in viseme_dicts]
+                duration_ms = (
+                    int(visemes[-1].end * 1000) if visemes else 0
+                )
 
                 payload = AudioChunkPayload(
                     text=chunk.text,
                     emotion=chunk.emotion,
                     audio_base64=audio_to_base64(audio_bytes),
-                    # duration_ms và visemes sẽ được điền ở Stage 4 (Rhubarb)
+                    duration_ms=duration_ms,
+                    visemes=visemes,
                 )
                 await websocket.send_text(payload.model_dump_json())
 
