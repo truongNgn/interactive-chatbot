@@ -17,6 +17,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useChatStore } from '../store/chatStore'
 import type { Emotion } from '../types'
+import { tickLipSync, ALL_VISEME_KEYS } from '../hooks/useLipSync'
 
 const AVATAR_PATH = '/models/avatar.glb'
 
@@ -149,7 +150,20 @@ function GLBAvatar() {
       )
     }
 
-    // --- 3. Subtle head bob ---
+    // --- 3. Lip-sync viseme morphs (lerp toward current Rhubarb cue weights) ---
+    const visemeWeights = tickLipSync()
+    for (const key of ALL_VISEME_KEYS) {
+      const target = (visemeWeights as Record<string, number>)[key] ?? 0
+      const idx = avatarMorphRef.dict[key]
+      if (idx === undefined) continue
+      avatarMorphRef.influences[idx] = THREE.MathUtils.lerp(
+        avatarMorphRef.influences[idx],
+        target,
+        delta * 14, // faster lerp than emotion (~14 vs 3) for snappy lip-sync
+      )
+    }
+
+    // --- 4. Subtle head bob ---
     if (groupRef.current) {
       const t = performance.now() / 1000
       groupRef.current.rotation.z = Math.sin(t * 0.6) * 0.008
