@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     xtts_language: str = "vi"           # "vi" hoặc "en", xem danh sách: https://docs.coqui.ai
     xtts_model_name: str = "tts_models/multilingual/multi-dataset/xtts_v2"
 
+    # Rhubarb Lip-Sync (Stage 4)
+    # Set to the path of rhubarb.exe (Windows) or rhubarb binary (Linux/Mac).
+    # Leave empty to disable lip-sync (visemes will be []).
+    rhubarb_path: str = ""
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
