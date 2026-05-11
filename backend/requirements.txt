@@ -6,3 +6,8 @@ pydantic-settings==2.5.2
 ollama==0.3.3
 python-dotenv==1.0.1
 elevenlabs==1.50.3
+openai>=1.54.0
+
+# Coqui XTTS-v2 local voice cloning (Python 3.12 compatible)
+coqui-tts>=0.27.5
+soundfile>=0.12.1

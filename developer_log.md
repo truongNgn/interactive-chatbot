@@ -1,58 +1,96 @@
 # Developer Log - Interactive 3D Chatbot
 
-> [!IMPORTANT]
-> **Quy tắc quản lý Log:**
-> 1. Mỗi khi bắt đầu một task mới, Agent **phải xóa các log của task cũ** để tiết kiệm dung lượng và giữ file súc tích.
-> 2. Luôn cập nhật trạng thái task hiện tại.
-> 3. Liên kết đến [BRAIN.md](BRAIN.md), [Gemini.md](gemini.md), và [Claude.md](claude.md).
+> **Quy tắc:** Xóa log task cũ khi bắt đầu task mới. Luôn link đến [BRAIN.md](BRAIN.md).
 
 ---
 
-## Task: Stage 3 (Tier 3) — Facecap Sample Avatar
+## Task: XTTS-v2 Setup hoàn chỉnh + Custom Avatar + Bug Fixes
 **Agent:** Claude (Senior AI Engineer)
-**Status:** Completed
-**Date:** 2026-05-04
+**Status:** ✅ Completed
+**Date:** 2026-05-07
 
-### Các thay đổi thực hiện:
+### Nội dung thực hiện
 
-**Model:** `frontend/public/models/avatar.glb`
-- Nguồn: Three.js facecap sample (332KB, GLB v2)
-- **52 ARKit blendshapes** đầy đủ trên head mesh
-- Nodes: `head` (morph mesh), `teeth`, `eyeLeft`, `eyeRight`
+#### 1. Bug Fixes (Frontend)
 
-**Files thay đổi:**
-- `frontend/src/components/Avatar.tsx` — traverse scene tìm morph mesh, expose `avatarMorphRef` (module-level), idle blink, emotion blendshapes via lerp
-- `frontend/src/components/Scene.tsx` — camera gần hơn (`fov: 38, z: 1.4`) phù hợp head-only model
-- `frontend/src/types/visemeMapping.ts` [NEW] — bảng mapping Rhubarb phoneme (A-X) → ARKit blendshape weights
+**`frontend/src/components/Avatar.tsx`**
+- Fix `THREE.GLTFLoader: setKTX2Loader must be called` — thêm `KTX2Loader` qua `useGLTF extendLoader` + `useThree`
+- Xóa `useGLTF.preload(AVATAR_PATH)` — nguyên nhân gốc gây cache lỗi trước khi KTX2Loader ready
+- Fix TypeScript: cast `ktx2 as any` để tránh type conflict giữa `three` và `three-stdlib`
 
-**`avatarMorphRef` (cho Stage 4):**
-```ts
-export const avatarMorphRef = {
-  mesh: SkinnedMesh | null,
-  dict: Record<string, number>,   // morphTargetDictionary
-  influences: number[],           // morphTargetInfluences (live reference)
-}
-export function setMorph(name: string, value: number): void
-export function resetMorphs(names: string[]): void
+**`frontend/src/hooks/useWebSocket.ts`**
+- Fix "WebSocket closed before connection established": guard `readyState !== WebSocket.CLOSED`
+
+**`frontend/src/hooks/useVAD.ts`**
+- Fix TypeScript: cast `Float32Array<ArrayBuffer>` cho `getFloatTimeDomainData()`
+
+#### 2. Custom Avatar — `fashion_girl_asian_girl.glb`
+
+**`frontend/src/components/Avatar.tsx`** [REWRITTEN]
+- Đổi `AVATAR_PATH` → `/models/fashion_girl_asian_girl.glb`
+- Hướng A (static display): model không có ARKit blendshapes, hiển thị tĩnh
+- Điều kiện tìm morph mesh nới lỏng: `> 0` thay vì `> 10`
+- Idle animation: body sway (`rotation.y` + `position.y` sin wave) thay vì head bob
+- Fallback shape: `capsuleGeometry` thay vì sphere
+- morph/emotion logic vẫn giữ — no-op nếu model không có blendshapes
+
+**`frontend/src/components/Scene.tsx`** [UPDATED]
+- Camera: `position=[0,1,3.5]`, `fov=50`, `far=50` — full-body view
+- `OrbitControls target=[0,1,0]` — nhìn ngang hông nhân vật
+- `ContactShadows position=[0,-0.01,0]` — đổ bóng xuống sàn
+- minDistance=1.5, maxDistance=6
+
+#### 3. XTTS-v2 Voice Cloning — Setup hoàn chỉnh
+
+**Quá trình setup (ghi lại để Agent sau tránh lặp lại):**
+
+| Vấn đề | Nguyên nhân | Fix |
+|--------|------------|-----|
+| Server crash khi start | `CoquiXTTSHandler.__init__` load model ngay lúc startup | Chuyển sang lazy load trong `_get_tts()` |
+| `ImportError: isin_mps_friendly` | `transformers>=4.47` xóa hàm này | Patch `venv/.../tortoise/autoregressive.py`: `try/except ImportError → torch.isin` |
+| `ImportError: is_torch_greater_or_equal` | `transformers<4.48` chưa có hàm này | Nâng lên `transformers>=4.48` |
+| License prompt block server | XTTS hỏi đồng ý CPML interactively | Set `os.environ["COQUI_TOS_AGREED"] = "1"` trong code |
+| `ValidationError: extra inputs not permitted` | `COQUI_TOS_AGREED=1` trong `.env` bị pydantic-settings reject | Xóa khỏi `.env`, set trong code + thêm `extra="ignore"` vào Settings |
+| `Language vi is not supported` | XTTS-v2 không hỗ trợ tiếng Việt | Đổi `XTTS_LANGUAGE=en` |
+
+**Files đã thay đổi:**
+- `backend/app/tts_handler.py` — lazy load, phân tách ImportError, auto-accept license, GPU detect
+- `backend/app/config.py` — thêm `extra="ignore"`, xtts settings
+- `backend/app/main.py` — startup log phân biệt provider
+- `backend/requirements.txt` — thêm `coqui-tts`, `soundfile`
+- `backend/.env` — `ELEVENLABS_API_KEY=` (trống), `XTTS_SPEAKER_WAV`, `XTTS_LANGUAGE=en`
+
+**Patch thủ công trong venv (phải làm lại nếu reinstall coqui-tts):**
+```
+venv/Lib/site-packages/TTS/tts/layers/tortoise/autoregressive.py — line 11-12:
+try:
+    from transformers.pytorch_utils import isin_mps_friendly as isin
+except ImportError:
+    isin = torch.isin
 ```
 
-**Rhubarb → ARKit mapping** (`visemeMapping.ts`):
-```
-A (ah)  → jawOpen:0.8, mouthFunnel:0.2, mouthLowerDown:0.4
-B (pbm) → mouthClose:0.9, mouthPress:0.4
-C (th)  → jawOpen:0.35, mouthLowerDown:0.6, mouthUpperUp:0.4
-D (ee)  → jawOpen:0.2, mouthSmile:0.5, mouthStretch:0.3
-E (eh)  → jawOpen:0.45, mouthStretch:0.4
-F (fv)  → mouthRollLower:0.6, jawOpen:0.1
-G (oh)  → jawOpen:0.55, mouthFunnel:0.6
-H (oo)  → mouthPucker:0.7, mouthFunnel:0.5, jawOpen:0.2
-X       → (silence, all 0)
-```
+**Môi trường đã xác nhận hoạt động:**
+- Python 3.12.7
+- torch 2.5.1+cu121 (NVIDIA RTX 3050 Laptop GPU)
+- coqui-tts 0.27.5
+- transformers 4.48.x
+- soundfile 0.13.1
+- XTTS model: `tts_models/multilingual/multi-dataset/xtts_v2` (~2GB, cache tại `C:\Users\...\AppData\Local\tts\`)
+- Voice sample: `backend/voices/NT_Voice_full.wav`
+- Language: `en` (XTTS-v2 không hỗ trợ `vi`)
 
-### Ghi chú cho Agent tiếp theo (Stage 4):
-- Đừng quên xóa phần log này khi bắt đầu Stage 4!
-- Stage 4 cần: import `{ avatarMorphRef, setMorph, resetMorphs, VISEME_MAP, ALL_VISEME_KEYS }` từ Avatar và visemeMapping
-- Rhubarb output JSON: `[{ "start": 0.0, "end": 0.1, "value": "A" }, ...]`
-- Chạy Rhubarb trên backend (Windows binary hoặc Docker), expose kết quả trong `AudioChunkPayload.visemes`
+#### 4. Tài liệu mới
+
+- `WORKFLOW.md` [NEW] — data flow, interrupt flow, emotion system
+- `GUIDE.md` [NEW] — hướng dẫn cài đặt đầy đủ
+
+### Ghi chú cho Agent tiếp theo (Stage 4 — Lip-sync)
+- Avatar hiện tại (`fashion_girl_asian_girl.glb`) **không có blendshapes** → Stage 4 lip-sync sẽ cần:
+  - Thay model có ARKit blendshapes (Ready Player Me / facecap), HOẶC
+  - Rig blendshapes vào model hiện tại qua Blender
+- `avatarMorphRef`, `setMorph()`, `resetMorphs()` sẵn sàng trong `Avatar.tsx`
+- `VISEME_MAP`, `ALL_VISEME_KEYS` trong `frontend/src/types/visemeMapping.ts`
+- Backend cần Rhubarb binary để điền `AudioChunkPayload.visemes[]`
+- **Xóa log này khi bắt đầu Stage 4**
 
 ---

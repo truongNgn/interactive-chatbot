@@ -27,6 +27,11 @@ class InterruptPayload(BaseModel):
     type: str = "interrupt"
 
 
+class SetModelPayload(BaseModel):
+    type: str = "set_model"
+    provider: str  # "ollama" | "deepseek"
+
+
 # --- WebSocket message types (server -> client) ---
 
 class TextChunkPayload(BaseModel):

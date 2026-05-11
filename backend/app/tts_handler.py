@@ -1,17 +1,21 @@
 """
-TTS Handler — Stage 2: Text-to-Speech với ElevenLabs.
+TTS Handler — Stage 2: Text-to-Speech.
 
 Kiến trúc:
   - BaseTTSHandler: abstract interface
   - ElevenLabsTTSHandler: cloud TTS với emotion → VoiceSettings mapping
-  - NoOpTTSHandler: fallback khi không có API key (trả về bytes rỗng, client hiển thị text)
+  - CoquiXTTSHandler: local voice cloning với XTTS-v2 (chỉ cần 6-10s mẫu giọng)
+  - NoOpTTSHandler: fallback khi không cấu hình TTS (trả về bytes rỗng)
 
-Factory function `get_tts_handler()` tự động chọn handler dựa trên config.
+Factory function `get_tts_handler()` ưu tiên: ElevenLabs → XTTS → NoOp.
 """
 
+import asyncio
 import base64
+import io
 import logging
 from abc import ABC, abstractmethod
+from functools import lru_cache
 
 from elevenlabs import VoiceSettings
 from elevenlabs.client import AsyncElevenLabs
@@ -75,6 +79,9 @@ class BaseTTSHandler(ABC):
     async def synthesize(self, chunk: SentenceChunk) -> bytes:
         """Chuyển SentenceChunk → audio bytes. Trả về b'' nếu không có audio."""
 
+    async def warmup(self) -> None:
+        """Pre-load model & GPU vào VRAM. Override ở subclass nếu cần."""
+
     @property
     def is_active(self) -> bool:
         """True nếu handler có thể sinh audio thật."""
@@ -128,6 +135,118 @@ class ElevenLabsTTSHandler(BaseTTSHandler):
 
 
 # ---------------------------------------------------------------------------
+# Coqui XTTS-v2: local voice cloning
+# ---------------------------------------------------------------------------
+
+@lru_cache(maxsize=1)
+def _load_xtts_model(model_name: str):
+    """Load XTTS model một lần duy nhất, cache lại để dùng lại."""
+    try:
+        import torch
+        logger.info("PyTorch %s | CUDA available: %s", torch.__version__, torch.cuda.is_available())
+    except ImportError as exc:
+        raise RuntimeError(
+            "PyTorch chưa được cài. Chạy:\n"
+            "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121"
+        ) from exc
+
+    try:
+        import torchaudio  # noqa: F401
+        logger.info("torchaudio OK")
+    except ImportError as exc:
+        raise RuntimeError(
+            "torchaudio chưa được cài. Chạy:\n"
+            "pip install torchaudio --index-url https://download.pytorch.org/whl/cu121"
+        ) from exc
+
+    try:
+        from TTS.api import TTS  # type: ignore[import]
+        logger.info("TTS import OK")
+    except Exception as exc:
+        logger.error("TTS import failed: %s", exc, exc_info=True)
+        raise RuntimeError(f"Không thể import TTS: {exc}") from exc
+
+    # Auto-accept Coqui non-commercial license (CPML) — bỏ interactive prompt
+    import os
+    os.environ["COQUI_TOS_AGREED"] = "1"
+
+    logger.info("Loading XTTS model '%s' — lần đầu sẽ tải về (~2GB)...", model_name)
+    use_gpu = torch.cuda.is_available()
+    logger.info("XTTS using %s", "GPU" if use_gpu else "CPU")
+    tts = TTS(model_name, gpu=use_gpu)
+    logger.info("XTTS model loaded.")
+    return tts
+
+
+class CoquiXTTSHandler(BaseTTSHandler):
+    """
+    Voice cloning local với XTTS-v2.
+    Cần file giọng mẫu WAV (6-10 giây, mono/stereo, 22050Hz+).
+    Model được load LAZY — lần đầu synthesize mới load, server start bình thường.
+    Chạy inference trong thread pool để không block event loop.
+    """
+
+    def __init__(self, speaker_wav: str, language: str, model_name: str) -> None:
+        self._speaker_wav = speaker_wav
+        self._language = language
+        self._model_name = model_name
+        self._tts = None          # lazy — chưa load lúc khởi tạo
+        self._executor = None
+
+    def _get_tts(self):
+        """Load model lần đầu tiên khi cần, cache lại cho các lần sau."""
+        if self._tts is None:
+            self._tts = _load_xtts_model(self._model_name)
+        return self._tts
+
+    async def synthesize(self, chunk: SentenceChunk) -> bytes:
+        loop = asyncio.get_event_loop()
+
+        def _run() -> bytes:
+            try:
+                import soundfile as sf  # type: ignore[import]
+            except ImportError as exc:
+                raise RuntimeError("Thiếu soundfile. Chạy: pip install soundfile") from exc
+
+            logger.debug(
+                "XTTS synthesize | lang=%s | text=%r",
+                self._language,
+                chunk.text[:60],
+            )
+
+            wav: list[float] = self._get_tts().tts(
+                text=chunk.text,
+                speaker_wav=self._speaker_wav,
+                language=self._language,
+            )
+
+            buf = io.BytesIO()
+            sf.write(buf, wav, samplerate=24000, format="WAV")
+            buf.seek(0)
+            return buf.read()
+
+        audio_bytes = await loop.run_in_executor(self._executor, _run)
+        logger.debug("XTTS done | %d bytes", len(audio_bytes))
+        return audio_bytes
+
+    async def warmup(self) -> None:
+        """
+        Pre-load XTTS model + warm-up GPU ngay lúc server start.
+        Synthesize một câu ngắn để:
+          - Load model vào VRAM (tránh delay ở request đầu tiên)
+          - Khởi tạo CUDA kernels
+          - Cache speaker embedding từ file WAV mẫu
+        """
+        logger.info("XTTS: warming up model (pre-loading into GPU)...")
+        dummy = SentenceChunk(text="Hello.", emotion=Emotion.neutral)
+        try:
+            await self.synthesize(dummy)
+            logger.info("XTTS: warmup complete — model ready in VRAM.")
+        except Exception as exc:
+            logger.warning("XTTS warmup failed (non-fatal): %s", exc)
+
+
+# ---------------------------------------------------------------------------
 # Fallback: no-op (TTS không cấu hình)
 # ---------------------------------------------------------------------------
 
@@ -155,7 +274,26 @@ def get_tts_handler() -> BaseTTSHandler:
         logger.info("TTS: ElevenLabs (voice=%s, model=%s)", settings.elevenlabs_voice_id, settings.elevenlabs_model_id)
         return ElevenLabsTTSHandler()
 
-    logger.warning("ELEVENLABS_API_KEY not set — running in text-only mode (NoOpTTSHandler).")
+    if settings.xtts_speaker_wav:
+        import os
+        if not os.path.isfile(settings.xtts_speaker_wav):
+            logger.error(
+                "XTTS_SPEAKER_WAV '%s' không tồn tại — fallback text-only.",
+                settings.xtts_speaker_wav,
+            )
+            return NoOpTTSHandler()
+        logger.info(
+            "TTS: Coqui XTTS-v2 | speaker_wav=%s | language=%s",
+            settings.xtts_speaker_wav,
+            settings.xtts_language,
+        )
+        return CoquiXTTSHandler(
+            speaker_wav=settings.xtts_speaker_wav,
+            language=settings.xtts_language,
+            model_name=settings.xtts_model_name,
+        )
+
+    logger.warning("Không có TTS nào được cấu hình — running in text-only mode.")
     return NoOpTTSHandler()
 
 

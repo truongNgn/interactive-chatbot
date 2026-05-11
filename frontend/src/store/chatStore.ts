@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AudioChunkPayload, ChatMessage, Emotion, WsStatus } from '../types'
+import type { AudioChunkPayload, ChatMessage, Emotion, LlmProvider, WsStatus } from '../types'
 
 interface ChatState {
   // WebSocket
@@ -15,6 +15,9 @@ interface ChatState {
   // Current avatar state
   currentEmotion: Emotion
 
+  // LLM provider
+  llmProvider: LlmProvider
+
   // Actions
   setWsStatus: (status: WsStatus) => void
   addMessage: (msg: ChatMessage) => void
@@ -23,6 +26,7 @@ interface ChatState {
   clearQueue: () => void
   setIsAISpeaking: (val: boolean) => void
   setCurrentEmotion: (emotion: Emotion) => void
+  setLlmProvider: (provider: LlmProvider) => void
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -31,6 +35,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   audioQueue: [],
   isAISpeaking: false,
   currentEmotion: 'neutral',
+  llmProvider: 'ollama',
 
   setWsStatus: (status) => set({ wsStatus: status }),
 
@@ -54,4 +59,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setIsAISpeaking: (val) => set({ isAISpeaking: val }),
 
   setCurrentEmotion: (emotion) => set({ currentEmotion: emotion }),
+
+  setLlmProvider: (provider) => set({ llmProvider: provider }),
 }))

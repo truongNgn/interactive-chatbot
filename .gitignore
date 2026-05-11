@@ -3,6 +3,9 @@ venv/
 .venv/
 env/
 
+voices/
+
+models/
 
 # Bỏ qua thư mục thư viện của Node.js
 node_modules/
@@ -11,3 +14,11 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Skip .wav and .glb file
+*.wav
+*.glb
+
+# Ignore generated/public model asset folders
+frontend/dist/models/
+frontend/public/models/

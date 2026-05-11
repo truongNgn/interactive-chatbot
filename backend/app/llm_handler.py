@@ -1,13 +1,15 @@
 """
-LLM Handler: quản lý giao tiếp với Ollama (Llama 3).
-Trả về async generator các token từ stream.
+LLM Handler: abstract base + provider implementations (Ollama, DeepSeek).
+Factory function `get_llm_handler(provider)` trả về handler phù hợp.
 """
 
 import logging
+from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import ollama
+from openai import AsyncOpenAI
 
 from app.config import settings
 
@@ -34,23 +36,32 @@ Examples:
 """
 
 
-class LLMHandler:
+class BaseLLMHandler(ABC):
+    """Abstract base for all LLM provider handlers."""
+
+    @abstractmethod
+    async def stream_tokens(self, user_text: str) -> AsyncGenerator[str, None]:
+        ...
+
+    @abstractmethod
+    async def health_check(self) -> bool:
+        ...
+
+    async def warmup(self) -> None:
+        """Pre-load model vào VRAM. Override ở subclass nếu cần."""
+
+
+class OllamaHandler(BaseLLMHandler):
     def __init__(self) -> None:
         self._client = ollama.AsyncClient(host=settings.ollama_host)
         self.model = settings.ollama_model
 
     async def stream_tokens(self, user_text: str) -> AsyncGenerator[str, None]:
-        """
-        Gửi message tới Llama 3 và yield từng token từ stream.
-        Raises OllamaError nếu model không khả dụng.
-        """
-        logger.info("LLM stream started | model=%s | input=%r", self.model, user_text[:80])
-
+        logger.info("Ollama stream | model=%s | input=%r", self.model, user_text[:80])
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_text},
         ]
-
         try:
             async for part in await self._client.chat(
                 model=self.model,
@@ -61,18 +72,81 @@ class LLMHandler:
                 if token:
                     yield token
         except Exception as exc:
-            logger.error("LLM stream error: %s", exc)
+            logger.error("Ollama stream error: %s", exc)
             raise
 
     async def health_check(self) -> bool:
-        """Kiểm tra Ollama có chạy và model có tồn tại không."""
         try:
             models = await self._client.list()
             available = [m["name"] for m in models.get("models", [])]
             if self.model not in available:
-                logger.warning("Model %s not found. Available: %s", self.model, available)
+                logger.warning("Ollama model %s not found. Available: %s", self.model, available)
                 return False
             return True
         except Exception as exc:
             logger.error("Ollama health check failed: %s", exc)
             return False
+
+    async def warmup(self) -> None:
+        """Gửi dummy request để Ollama load model vào VRAM trước request đầu tiên."""
+        logger.info("Ollama: warming up model '%s' into VRAM...", self.model)
+        try:
+            # Consume toàn bộ stream của câu ngắn để đảm bảo model fully loaded
+            async for _ in self.stream_tokens("Hi"):
+                pass
+            logger.info("Ollama: warmup complete — model ready.")
+        except Exception as exc:
+            logger.warning("Ollama warmup failed (non-fatal): %s", exc)
+
+
+class DeepSeekHandler(BaseLLMHandler):
+    """DeepSeek v3 via OpenAI-compatible API (api.deepseek.com)."""
+
+    def __init__(self) -> None:
+        self._client = AsyncOpenAI(
+            api_key=settings.deepseek_api_key,
+            base_url="https://api.deepseek.com/v1",
+        )
+        self.model = settings.deepseek_model
+
+    async def stream_tokens(self, user_text: str) -> AsyncGenerator[str, None]:
+        logger.info("DeepSeek stream | model=%s | input=%r", self.model, user_text[:80])
+        try:
+            stream = await self._client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_text},
+                ],
+                stream=True,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+        except Exception as exc:
+            logger.error("DeepSeek stream error: %s", exc)
+            raise
+
+    async def health_check(self) -> bool:
+        if not settings.deepseek_api_key:
+            logger.warning("DeepSeek: DEEPSEEK_API_KEY not set")
+            return False
+        try:
+            models = await self._client.models.list()
+            return any(m.id == self.model for m in models.data)
+        except Exception as exc:
+            logger.error("DeepSeek health check failed: %s", exc)
+            return False
+
+
+# Backwards compat alias
+LLMHandler = OllamaHandler
+
+
+def get_llm_handler(provider: str | None = None) -> BaseLLMHandler:
+    """Factory: trả về handler theo provider string."""
+    p = (provider or settings.llm_provider).lower()
+    if p == "deepseek":
+        return DeepSeekHandler()
+    return OllamaHandler()

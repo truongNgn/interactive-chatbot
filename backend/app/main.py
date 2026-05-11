@@ -12,7 +12,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.llm_handler import LLMHandler
+from app.llm_handler import get_llm_handler
 from app.models import AudioChunkPayload, DonePayload, ErrorPayload
 from app.orchestrator import Orchestrator
 from app.tts_handler import BaseTTSHandler, audio_to_base64, get_tts_handler
@@ -26,19 +26,27 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup checks
-    llm = LLMHandler()
+    # ── LLM warmup ────────────────────────────────────────────────────────────
+    # Gửi dummy request để Ollama load model vào VRAM trước request đầu tiên.
+    llm = get_llm_handler()
     llm_ok = await llm.health_check()
     if llm_ok:
-        logger.info("LLM: Ollama '%s' is ready.", settings.ollama_model)
+        logger.info("LLM: provider='%s' is ready.", settings.llm_provider)
+        await llm.warmup()
     else:
-        logger.warning("LLM: Ollama model '%s' not ready.", settings.ollama_model)
+        logger.warning("LLM: provider='%s' not ready — skipping warmup.", settings.llm_provider)
 
+    # ── TTS warmup ────────────────────────────────────────────────────────────
+    # Pre-load XTTS vào GPU ngay khi server start (không lazy nữa).
     tts = get_tts_handler()
     if tts.is_active:
-        logger.info("TTS: ElevenLabs ready (voice=%s).", settings.elevenlabs_voice_id)
+        if settings.elevenlabs_api_key:
+            logger.info("TTS: ElevenLabs ready (voice=%s).", settings.elevenlabs_voice_id)
+        else:
+            logger.info("TTS: Coqui XTTS-v2 — starting warmup...")
+            await tts.warmup()
     else:
-        logger.warning("TTS: Running in text-only mode (no ELEVENLABS_API_KEY).")
+        logger.warning("TTS: Running in text-only mode.")
 
     app.state.tts_handler = tts
     yield
@@ -61,15 +69,18 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    llm = LLMHandler()
+    llm = get_llm_handler()
     llm_ok = await llm.health_check()
     tts: BaseTTSHandler = app.state.tts_handler
     return {
         "status": "ok" if llm_ok else "degraded",
-        "llm": {"model": settings.ollama_model, "ready": llm_ok},
+        "llm": {"provider": settings.llm_provider, "ready": llm_ok},
         "tts": {
-            "provider": "elevenlabs" if tts.is_active else "none",
-            "voice_id": settings.elevenlabs_voice_id if tts.is_active else None,
+            "provider": (
+                "elevenlabs" if settings.elevenlabs_api_key
+                else "xtts" if settings.xtts_speaker_wav
+                else "none"
+            ),
             "ready": tts.is_active,
         },
     }
@@ -82,8 +93,12 @@ async def websocket_chat(websocket: WebSocket):
     logger.info("WebSocket connected: %s", client)
 
     tts: BaseTTSHandler = websocket.app.state.tts_handler
-    orchestrator = Orchestrator()
+    current_provider: str = settings.llm_provider
+    orchestrator = Orchestrator(get_llm_handler(current_provider))
     current_task: asyncio.Task | None = None
+
+    # Thông báo provider hiện tại cho client ngay khi connect
+    await websocket.send_text(json.dumps({"type": "connected", "provider": current_provider}))
 
     async def _run_pipeline(user_text: str) -> None:
         """
@@ -169,6 +184,19 @@ async def websocket_chat(websocket: WebSocket):
                 logger.info("Interrupt signal from %s", client)
                 await _cancel_current()
                 await websocket.send_text(json.dumps({"type": "clear_queue"}))
+
+            elif msg_type == "set_model":
+                provider = data.get("provider", "ollama").lower()
+                if provider not in ("ollama", "deepseek"):
+                    await websocket.send_text(
+                        ErrorPayload(message=f"Unknown provider: {provider}").model_dump_json()
+                    )
+                    continue
+                await _cancel_current()
+                current_provider = provider
+                orchestrator = Orchestrator(get_llm_handler(current_provider))
+                logger.info("LLM provider switched to '%s' for %s", current_provider, client)
+                await websocket.send_text(json.dumps({"type": "model_changed", "provider": current_provider}))
 
             elif msg_type == "user_message":
                 user_text: str = data.get("text", "").strip()
