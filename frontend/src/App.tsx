@@ -1,45 +1,49 @@
 import { useCallback, useEffect } from 'react'
-import { Scene } from './components/Scene'
 import { ChatInterface } from './components/ChatInterface'
+import { Sidebar } from './components/Sidebar'
+import { RightSidebar } from './components/RightSidebar'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAudioQueue } from './hooks/useAudioQueue'
 import { useVAD } from './hooks/useVAD'
 import { useChatStore } from './store/chatStore'
 
 export function App() {
-  const { sendMessage, sendInterrupt, sendSetModel } = useWebSocket()
   const { stopPlayback } = useAudioQueue()
+  const { sendMessage, sendInterrupt, sendSetModel } = useWebSocket(stopPlayback)
+
+  const handleInterrupt = useCallback(() => {
+    stopPlayback()
+    sendInterrupt()
+  }, [stopPlayback, sendInterrupt])
 
   const isAISpeaking = useCallback(
     () => useChatStore.getState().isAISpeaking,
     [],
   )
 
-  const handleVoiceDetected = useCallback(() => {
-    stopPlayback()
-    sendInterrupt()
-  }, [stopPlayback, sendInterrupt])
-
   const { startListening, stopListening } = useVAD({
-    onVoiceDetected: handleVoiceDetected,
+    onVoiceDetected: handleInterrupt,
     isAISpeaking,
   })
 
-  // Bắt đầu lắng nghe mic khi component mount
   useEffect(() => {
     startListening()
     return () => stopListening()
   }, [startListening, stopListening])
 
-  return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      {/* 3D layer — fills the screen */}
-      <div style={{ position: 'absolute', inset: 0 }}>
-        <Scene />
-      </div>
+  // New session: update store + reconnect WS với sessionId mới không cần thiết
+  // vì useWebSocket luôn đọc activeSessionId từ store khi gửi message.
+  const handleNewSession = useCallback(() => {
+    useChatStore.getState().createNewSession()
+  }, [])
 
-      {/* UI overlay — sits on top of canvas */}
-      <ChatInterface sendMessage={sendMessage} sendInterrupt={sendInterrupt} sendSetModel={sendSetModel} />
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex' }}>
+      <Sidebar onNewSession={handleNewSession} sendSetModel={sendSetModel} />
+      <div style={{ flex: 1, position: 'relative' }}>
+        <ChatInterface sendMessage={sendMessage} sendInterrupt={handleInterrupt} />
+      </div>
+      <RightSidebar />
     </div>
   )
 }

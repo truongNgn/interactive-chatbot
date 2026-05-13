@@ -5,10 +5,13 @@ import type { InterruptPayload, LlmProvider, ServerMessage, SetModelPayload, Use
 const WS_URL = 'ws://localhost:8000/ws/chat'
 const RECONNECT_DELAY_MS = 3000
 
-export function useWebSocket() {
+export function useWebSocket(onClearQueue?: () => void) {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isMounted = useRef(true)
+  // Dùng ref để callback luôn là bản mới nhất mà không re-trigger useEffect/useCallback
+  const onClearQueueRef = useRef(onClearQueue)
+  onClearQueueRef.current = onClearQueue
 
   const { setWsStatus, addMessage, enqueueAudio, clearQueue, setLlmProvider } = useChatStore.getState()
 
@@ -66,6 +69,7 @@ export function useWebSocket() {
 
         case 'clear_queue':
           clearQueue()
+          onClearQueueRef.current?.()
           break
 
         case 'connected':
@@ -103,7 +107,16 @@ export function useWebSocket() {
       console.warn('[WS] Not connected, cannot send message')
       return
     }
-    const payload: UserMessagePayload = { type: 'user_message', text }
+    const { userId, activeSessionId, ttsEnabled, routerEnabled, currentVoice } = useChatStore.getState()
+    const payload: UserMessagePayload = {
+      type: 'user_message',
+      text,
+      user_id: userId,
+      session_id: activeSessionId,
+      tts_enabled: ttsEnabled,
+      router_enabled: routerEnabled,
+      voice: currentVoice,
+    }
     ws.send(JSON.stringify(payload))
   }, [])
 

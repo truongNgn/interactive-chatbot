@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useChatStore } from '../store/chatStore'
 import type { AudioChunkPayload } from '../types'
-import { startLipSync, stopLipSync } from './useLipSync'
+import { startLipSync, startAmplitudeLipSync, stopLipSync } from './useLipSync'
 
 function base64ToArrayBuffer(b64: string): ArrayBuffer {
   const binary = atob(b64)
@@ -81,10 +81,12 @@ export function useAudioQueue() {
       return
     }
 
-    // Text-only mode (audio_base64 rỗng)
+    // Text-only mode (audio_base64 rỗng — TTS tắt từ client)
     if (!chunk.audio_base64) {
       setCurrentEmotion(chunk.emotion)
-      setTimeout(playNext, 100)
+      // Không set isAISpeaking=true để avatar không animate lip-sync
+      // Drain queue ngay lập tức, không delay thêm
+      playNext()
       return
     }
 
@@ -122,6 +124,9 @@ export function useAudioQueue() {
       // Start lip-sync AFTER source.start() so ctx.currentTime is the correct baseline
       if (chunk.visemes.length > 0) {
         startLipSync(chunk.visemes, ctx)
+      } else {
+        // Amplitude fallback: no Rhubarb visemes → drive jawOpen from audio RMS
+        startAmplitudeLipSync(source)
       }
     } catch (err) {
       console.error('[AudioQueue] Playback error:', err)
@@ -136,13 +141,6 @@ export function useAudioQueue() {
       playNext()
     }
   }, [audioQueue.length, playNext])
-
-  // Dừng nếu queue bị xóa đột ngột (interrupt)
-  useEffect(() => {
-    if (audioQueue.length === 0 && isPlayingRef.current) {
-      stopPlayback()
-    }
-  }, [audioQueue.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopPlayback = useCallback(() => {
     if (sourceRef.current) {

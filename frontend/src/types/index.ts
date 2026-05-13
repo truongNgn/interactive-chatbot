@@ -39,10 +39,30 @@ export type ServerMessage =
   | ModelChangedPayload
   | ConnectedPayload
 
+// Session management
+export interface Session {
+  id: string           // UUID
+  title: string        // ~8 từ đầu của user message đầu tiên
+  createdAt: number    // Date.now() timestamp
+  messages: ChatMessage[]
+  projectId?: string   // ID của project chứa session này
+}
+
+export interface Project {
+  id: string
+  name: string
+  createdAt: number
+}
+
 // Client → Server
 export interface UserMessagePayload {
   type: 'user_message'
   text: string
+  user_id?: string
+  session_id?: string
+  tts_enabled?: boolean
+  router_enabled?: boolean
+  voice?: string
 }
 
 export interface InterruptPayload {
@@ -59,7 +79,7 @@ export interface ChatMessage {
 
 export type WsStatus = 'connecting' | 'open' | 'closed' | 'error'
 
-export type LlmProvider = 'ollama' | 'deepseek'
+export type LlmProvider = 'ollama' | 'deepseek' | 'qwen'
 
 export interface SetModelPayload {
   type: 'set_model'

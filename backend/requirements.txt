@@ -11,3 +11,15 @@ openai>=1.54.0
 # Coqui XTTS-v2 local voice cloning (Python 3.12 compatible)
 coqui-tts>=0.27.5
 soundfile>=0.12.1
+
+# Hybrid Memory — BM25 sparse retrieval (Upgrade 1)
+rank-bm25>=0.2.2
+
+# LangChain / LangGraph / LangSmith — Stage 1-4 Roleplay + Memory
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-ollama>=0.2.0
+langchain-openai>=0.2.0
+langchain-chroma>=0.1.0
+langgraph>=0.2.0
+langsmith>=0.1.0

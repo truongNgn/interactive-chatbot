@@ -16,8 +16,7 @@ import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { useChatStore } from '../store/chatStore'
 import type { Emotion } from '../types'
 import { tickLipSync, ALL_VISEME_KEYS } from '../hooks/useLipSync'
-
-const AVATAR_PATH = '/models/fashion_girl_asian_girl.glb'
+// Note: We use dynamic model path instead of AVATAR_PATH.
 
 // ---------------------------------------------------------------------------
 // Module-level morph ref (Stage 4 lip-sync)
@@ -81,7 +80,8 @@ function findBone(scene: THREE.Object3D, pattern: RegExp): THREE.Bone | undefine
 // ---------------------------------------------------------------------------
 function GLBAvatar() {
   const gl = useThree((s) => s.gl)
-  const { scene, animations } = useGLTF(AVATAR_PATH, true, true, (loader) => {
+  const currentModel = useChatStore((s) => s.currentModel)
+  const { scene, animations } = useGLTF(currentModel, true, true, (loader) => {
     const ktx2 = new KTX2Loader()
     ktx2.setTranscoderPath('https://cdn.jsdelivr.net/npm/three/examples/jsm/libs/basis/')
     ktx2.detectSupport(gl)
