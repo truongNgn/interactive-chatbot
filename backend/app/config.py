@@ -7,7 +7,10 @@ class Settings(BaseSettings):
 
     # Ollama
     ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "llama3:8b"
+    ollama_model: str = "llama3.1:latest"       # legacy alias — dùng ollama_large_model
+    ollama_large_model: str = "llama3.1:latest"
+    ollama_small_model: str = "qwen2.5:1.5b"
+    router_enabled: bool = True
 
     # DeepSeek
     deepseek_api_key: str = ""
@@ -28,6 +31,23 @@ class Settings(BaseSettings):
     # Set to the path of rhubarb.exe (Windows) or rhubarb binary (Linux/Mac).
     # Leave empty to disable lip-sync (visemes will be []).
     rhubarb_path: str = ""
+
+    # Session / History (Stage 1)
+    max_history_turns: int = 20          # số lượt hội thoại tối đa giữ trong memory
+
+    # Character Persona (Stage 2)
+    character_name: str = "Aria"
+    character_persona: str = "a warm, expressive AI companion who enjoys meaningful conversations"
+    character_backstory: str = ""        # ví dụ: "grew up in a coastal town, loves music"
+    character_personality: str = ""     # ví dụ: "curious, empathetic, occasionally witty"
+
+    # Long-term Memory — ChromaDB (Stage 3)
+    memory_enabled: bool = True
+    chroma_path: str = "./chroma_data"
+    embedding_model: str = "nomic-embed-text"
+    memory_retrieval_count: int = 5
+    memory_dedup_threshold: float = 0.95
+    memory_recency_weight: float = 0.3
 
     # Server
     host: str = "0.0.0.0"

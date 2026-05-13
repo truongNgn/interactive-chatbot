@@ -13,6 +13,8 @@ services:
     environment:
       # Override host để trỏ sang ollama service thay vì localhost
       OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - chroma_data:/app/chroma_data
     depends_on:
       - ollama
     ports:
@@ -29,3 +31,4 @@ services:
 
 volumes:
   ollama_data:
+  chroma_data:

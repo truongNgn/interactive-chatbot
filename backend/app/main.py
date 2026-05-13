@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +24,9 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = BACKEND_ROOT.parent
 
 
 @asynccontextmanager
@@ -87,6 +91,30 @@ async def health():
     }
 
 
+@app.get("/api/voices")
+async def get_voices():
+    voices_dir = BACKEND_ROOT / "voices"
+    if not voices_dir.exists():
+        return {"voices": []}
+    voices = sorted(
+        f.name for f in voices_dir.iterdir()
+        if f.is_file() and f.suffix.lower() == ".wav"
+    )
+    return {"voices": voices}
+
+
+@app.get("/api/models")
+async def get_models():
+    models_dir = PROJECT_ROOT / "frontend" / "public" / "models"
+    if not models_dir.exists():
+        return {"models": []}
+    models = sorted(
+        f.name for f in models_dir.iterdir()
+        if f.is_file() and f.suffix.lower() == ".glb"
+    )
+    return {"models": models}
+
+
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
     await websocket.accept()
@@ -101,44 +129,73 @@ async def websocket_chat(websocket: WebSocket):
     # Thông báo provider hiện tại cho client ngay khi connect
     await websocket.send_text(json.dumps({"type": "connected", "provider": current_provider}))
 
-    async def _run_pipeline(user_text: str) -> None:
+    async def _run_pipeline(user_text: str, session_id: str, user_id: str, tts_enabled: bool = True, voice: str | None = None, router_enabled: bool = True) -> None:
         """
-        Stage 1: Orchestrator → sentence_queue
-        Stage 2: sentence_queue → TTS.synthesize() → AudioChunkPayload → WebSocket
+        3-stage pipelined pipeline để giảm latency:
+
+          Stage 1 (producer):     Orchestrator → sentence_queue
+          Stage 2 (tts_producer): sentence_queue → TTS.synthesize() [eager, non-blocking] → tts_queue
+          Stage 3 (consumer):     tts_queue → Rhubarb → WebSocket send
+
+        Khi tts_enabled=False: bỏ qua TTS + Rhubarb, gửi text-only AudioChunkPayload ngay.
         """
         sentence_queue: asyncio.Queue = asyncio.Queue()
+        tts_queue: asyncio.Queue = asyncio.Queue()
 
-        # Stage 1 producer runs concurrently
+        # Stage 1: LLM → sentence_queue
         producer = asyncio.create_task(
-            orchestrator.run(user_text, sentence_queue)
+            orchestrator.run(user_text, session_id, user_id, sentence_queue, voice, router_enabled)
         )
 
-        try:
+        async def _tts_producer() -> None:
             while True:
                 chunk = await sentence_queue.get()
-
-                # Sentinel: Stage 1 finished
                 if chunk is None:
+                    await tts_queue.put(None)
+                    return
+                if tts_enabled:
+                    tts_task = asyncio.create_task(_synthesize_safe(chunk))
+                else:
+                    # Text-only: wrap empty bytes trong completed task
+                    tts_task = asyncio.create_task(_empty_audio())
+                await tts_queue.put((chunk, tts_task))
+
+        async def _synthesize_safe(chunk) -> bytes:
+            try:
+                return await tts.synthesize(chunk)
+            except Exception as exc:
+                logger.error("TTS error for chunk %r: %s", chunk.text[:40], exc)
+                return b""
+
+        async def _empty_audio() -> bytes:
+            return b""
+
+        tts_producer = asyncio.create_task(_tts_producer())
+
+        try:
+            # Stage 3: await TTS result, rồi Rhubarb → send
+            while True:
+                item = await tts_queue.get()
+                if item is None:
                     break
 
-                # Stage 2: synthesize audio
-                try:
-                    audio_bytes = await tts.synthesize(chunk)
-                except Exception as exc:
-                    logger.error("TTS error for chunk %r: %s", chunk.text[:40], exc)
-                    audio_bytes = b""
+                chunk, tts_task = item
+                audio_bytes = await tts_task
 
-                # Stage 4: extract visemes from audio via Rhubarb (concurrent-safe)
-                viseme_dicts = await get_visemes(audio_bytes)
-                visemes = [VisemeEntry(**v) for v in viseme_dicts]
-                duration_ms = (
-                    int(visemes[-1].end * 1000) if visemes else 0
-                )
+                if tts_enabled and audio_bytes:
+                    viseme_dicts = await get_visemes(audio_bytes)
+                    visemes = [VisemeEntry(**v) for v in viseme_dicts]
+                    duration_ms = int(visemes[-1].end * 1000) if visemes else 0
+                    audio_b64 = audio_to_base64(audio_bytes)
+                else:
+                    visemes = []
+                    duration_ms = 0
+                    audio_b64 = ""
 
                 payload = AudioChunkPayload(
                     text=chunk.text,
                     emotion=chunk.emotion,
-                    audio_base64=audio_to_base64(audio_bytes),
+                    audio_base64=audio_b64,
                     duration_ms=duration_ms,
                     visemes=visemes,
                 )
@@ -156,6 +213,11 @@ async def websocket_chat(websocket: WebSocket):
             except Exception:
                 pass
         finally:
+            tts_producer.cancel()
+            try:
+                await tts_producer
+            except (asyncio.CancelledError, Exception):
+                pass
             if not producer.done():
                 producer.cancel()
             try:
@@ -195,7 +257,7 @@ async def websocket_chat(websocket: WebSocket):
 
             elif msg_type == "set_model":
                 provider = data.get("provider", "ollama").lower()
-                if provider not in ("ollama", "deepseek"):
+                if provider not in ("ollama", "deepseek", "qwen"):
                     await websocket.send_text(
                         ErrorPayload(message=f"Unknown provider: {provider}").model_dump_json()
                     )
@@ -208,6 +270,12 @@ async def websocket_chat(websocket: WebSocket):
 
             elif msg_type == "user_message":
                 user_text: str = data.get("text", "").strip()
+                user_id: str = data.get("user_id", "default_user")
+                session_id: str = data.get("session_id", "default_session")
+                tts_enabled: bool = bool(data.get("tts_enabled", True))
+                # router_enabled: frontend toggle overrides server default per-request
+                router_enabled: bool = bool(data.get("router_enabled", settings.router_enabled))
+                voice: str | None = data.get("voice", None)
                 if not user_text:
                     await websocket.send_text(
                         ErrorPayload(message="Empty message").model_dump_json()
@@ -215,8 +283,13 @@ async def websocket_chat(websocket: WebSocket):
                     continue
 
                 await _cancel_current()
-                logger.info("New message from %s: %r", client, user_text[:80])
-                current_task = asyncio.create_task(_run_pipeline(user_text))
+                logger.info(
+                    "New message from %s [session=%s, tts=%s, router=%s, voice=%s]: %r",
+                    client, session_id, tts_enabled, router_enabled, voice, user_text[:80],
+                )
+                current_task = asyncio.create_task(
+                    _run_pipeline(user_text, session_id, user_id, tts_enabled, voice, router_enabled)
+                )
 
             else:
                 await websocket.send_text(

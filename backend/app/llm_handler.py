@@ -52,9 +52,9 @@ class BaseLLMHandler(ABC):
 
 
 class OllamaHandler(BaseLLMHandler):
-    def __init__(self) -> None:
+    def __init__(self, model: str | None = None) -> None:
         self._client = ollama.AsyncClient(host=settings.ollama_host)
-        self.model = settings.ollama_model
+        self.model = model or settings.ollama_model
 
     async def stream_tokens(self, user_text: str) -> AsyncGenerator[str, None]:
         logger.info("Ollama stream | model=%s | input=%r", self.model, user_text[:80])
@@ -149,4 +149,6 @@ def get_llm_handler(provider: str | None = None) -> BaseLLMHandler:
     p = (provider or settings.llm_provider).lower()
     if p == "deepseek":
         return DeepSeekHandler()
+    elif p == "qwen":
+        return OllamaHandler(model="qwen2.5:1.5b")
     return OllamaHandler()

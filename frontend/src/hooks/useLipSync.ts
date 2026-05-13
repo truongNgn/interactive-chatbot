@@ -23,23 +23,53 @@ export const lipSyncState: {
   visemes: VisemeKeyframe[]
   startTime: number   // AudioContext.currentTime at playback start
   ctx: AudioContext | null
+  analyser: AnalyserNode | null  // amplitude fallback when no Rhubarb visemes
+  _dataBuffer: Uint8Array | null
 } = {
   visemes: [],
   startTime: 0,
   ctx: null,
+  analyser: null,
+  _dataBuffer: null,
 }
 
-/** Called by useAudioQueue immediately after source.start(). */
+/** Called by useAudioQueue immediately after source.start() when Rhubarb visemes exist. */
 export function startLipSync(visemes: VisemeKeyframe[], ctx: AudioContext): void {
   lipSyncState.visemes = visemes
   lipSyncState.startTime = ctx.currentTime
   lipSyncState.ctx = ctx
+  lipSyncState.analyser = null
+  lipSyncState._dataBuffer = null
+}
+
+/**
+ * Amplitude fallback: called when audio plays but no Rhubarb visemes are available.
+ * Connects source → AnalyserNode (tap-only, source still connected to destination).
+ * tickLipSync() will read RMS to drive jawOpen.
+ */
+export function startAmplitudeLipSync(source: AudioBufferSourceNode): void {
+  try {
+    const ctx = source.context as AudioContext
+    const analyser = ctx.createAnalyser()
+    analyser.fftSize = 512
+    analyser.smoothingTimeConstant = 0.6
+    source.connect(analyser)
+    // Do NOT connect analyser → destination; source → destination is already wired externally
+    lipSyncState.analyser = analyser
+    lipSyncState._dataBuffer = new Uint8Array(analyser.frequencyBinCount)
+    lipSyncState.visemes = []
+    lipSyncState.ctx = null
+  } catch {
+    // ignore — no fallback
+  }
 }
 
 /** Called by useAudioQueue when audio ends or is stopped. */
 export function stopLipSync(): void {
   lipSyncState.visemes = []
   lipSyncState.ctx = null
+  lipSyncState.analyser = null
+  lipSyncState._dataBuffer = null
 }
 
 /** All ARKit keys used by the viseme map (for reset on stop). */
@@ -54,7 +84,22 @@ export { ALL_VISEME_KEYS }
  * Returns {} when no lip-sync is active (mouth returns to rest via lerp in Avatar).
  */
 export function tickLipSync(): Partial<Record<string, number>> {
-  const { visemes, startTime, ctx } = lipSyncState
+  const { visemes, startTime, ctx, analyser, _dataBuffer } = lipSyncState
+
+  // ── Amplitude fallback (no Rhubarb visemes) ────────────────────────────────
+  if (analyser && _dataBuffer) {
+    analyser.getByteTimeDomainData(_dataBuffer)
+    let sum = 0
+    for (let i = 0; i < _dataBuffer.length; i++) {
+      const v = (_dataBuffer[i] - 128) / 128
+      sum += v * v
+    }
+    const rms = Math.sqrt(sum / _dataBuffer.length)
+    const jawOpen = Math.min(1, rms * 5)
+    return jawOpen > 0.015 ? { jawOpen } : {}
+  }
+
+  // ── Rhubarb viseme mode ────────────────────────────────────────────────────
   if (!ctx || visemes.length === 0) return {}
 
   const elapsed = ctx.currentTime - startTime

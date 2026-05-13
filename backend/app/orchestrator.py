@@ -88,7 +88,11 @@ class Orchestrator:
     async def run(
         self,
         user_text: str,
+        session_id: str,
+        user_id: str,
         sentence_queue: asyncio.Queue[SentenceChunk | None],
+        voice: str | None = None,
+        router_enabled: bool = True,
     ) -> None:
         """
         Chạy pipeline LLM -> sentence-buffering -> queue.
@@ -99,19 +103,49 @@ class Orchestrator:
         first_chunk = True  # chunk đầu tiên dùng ngưỡng thấp hơn
 
         try:
-            async for token in self._llm.stream_tokens(user_text):
+            from app.lc_graph import graph
+            from app.router import HeuristicRouter, build_routing_context
+            from app.config import settings
+
+            selected_model: str | None = None
+            if router_enabled:
+                router = HeuristicRouter(
+                    large_model=settings.ollama_large_model,
+                    small_model=settings.ollama_small_model,
+                )
+                decision = router.select_model(build_routing_context(user_text))
+                selected_model = decision.model
+
+            token_queue = asyncio.Queue()
+
+            # Start graph run in background
+            graph_task = asyncio.create_task(
+                graph.ainvoke({
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "user_text": user_text,
+                    "selected_model": selected_model,
+                    "token_queue": token_queue,
+                })
+            )
+
+            while True:
                 if self._interrupted:
                     logger.info("Stream interrupted, stopping token consumption")
+                    break
+
+                token = await token_queue.get()
+                if token is None:
                     break
 
                 buffer += token
 
                 if buffer and _should_flush(buffer, buffer[-1], is_first_chunk=first_chunk):
-                    chunk = _flush_buffer(buffer)
+                    chunk = _flush_buffer(buffer, voice)
                     if chunk:
                         logger.debug(
-                            "Flushed chunk [first=%s]: emotion=%s len=%d text=%r",
-                            first_chunk, chunk.emotion, len(chunk.text), chunk.text[:60],
+                            "Flushed chunk [first=%s]: emotion=%s len=%d text=%r voice=%s",
+                            first_chunk, chunk.emotion, len(chunk.text), chunk.text[:60], chunk.voice
                         )
                         await sentence_queue.put(chunk)
                         first_chunk = False
@@ -119,10 +153,13 @@ class Orchestrator:
 
             # Flush phần còn lại (câu cuối có thể không có dấu câu)
             if buffer.strip() and not self._interrupted:
-                chunk = _flush_buffer(buffer)
+                chunk = _flush_buffer(buffer, voice)
                 if chunk:
-                    logger.debug("Final flush: emotion=%s text=%r", chunk.emotion, chunk.text[:60])
+                    logger.debug("Final flush: emotion=%s text=%r voice=%s", chunk.emotion, chunk.text[:60], chunk.voice)
                     await sentence_queue.put(chunk)
+
+            if not self._interrupted:
+                await graph_task
 
         except Exception as exc:
             logger.error("Orchestrator error: %s", exc)
@@ -131,13 +168,13 @@ class Orchestrator:
             await sentence_queue.put(None)
 
 
-def _flush_buffer(raw: str) -> SentenceChunk | None:
+def _flush_buffer(raw: str, voice: str | None = None) -> SentenceChunk | None:
     """Tạo SentenceChunk từ raw buffer, bóc tách emotion tag."""
     emotion, text = _parse_emotion(raw)
     text = text.strip()
     if not text:
         return None
-    return SentenceChunk(text=text, emotion=emotion)
+    return SentenceChunk(text=text, emotion=emotion, voice=voice)
 
 
 async def sentence_stream(

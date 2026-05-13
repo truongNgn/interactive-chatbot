@@ -14,6 +14,7 @@ class Emotion(str, Enum):
 class SentenceChunk(BaseModel):
     text: str
     emotion: Emotion = Emotion.neutral
+    voice: str | None = None
 
 
 # --- WebSocket message types (client -> server) ---
@@ -21,6 +22,10 @@ class SentenceChunk(BaseModel):
 class UserMessagePayload(BaseModel):
     type: str = "user_message"
     text: str
+    user_id: str | None = None
+    session_id: str | None = None
+    tts_enabled: bool = True
+    voice: str | None = None
 
 
 class InterruptPayload(BaseModel):
@@ -49,11 +54,12 @@ class VisemeEntry(BaseModel):
 
 
 class AudioChunkPayload(BaseModel):
-    """Sent after TTS synthesis. Contains base64-encoded audio + viseme keyframes."""
+    """Sent after TTS synthesis. Contains base64-encoded audio + viseme keyframes.
+    When tts_enabled=False, audio_base64 is empty string and visemes is empty."""
     type: str = "audio_chunk"
     text: str
     emotion: Emotion
-    audio_base64: str
+    audio_base64: str = ""
     duration_ms: int = 0
     visemes: list[VisemeEntry] = Field(default_factory=list)
 

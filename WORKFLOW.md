@@ -1,7 +1,7 @@
 # Project Workflow — Interactive 3D Chatbot
 
 > Tài liệu này mô tả luồng dữ liệu, kiến trúc runtime và quy trình phát triển của dự án.
-> Xem thêm: [BRAIN.md](BRAIN.md) · [CLAUDE.md](CLAUDE.md) · [Developer Log](developer_log.md)
+> Xem thêm: [BRAIN.md](BRAIN.md) · [CLAUDE.md](CLAUDE.md) · [Developer Log](developer_log.md) · [RAG Workflow](RAG_workflow.md)
 
 ---
 

@@ -14,7 +14,10 @@ import asyncio
 import base64
 import io
 import logging
+import struct
+import wave
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 
 from elevenlabs import VoiceSettings
@@ -191,7 +194,8 @@ class CoquiXTTSHandler(BaseTTSHandler):
         self._language = language
         self._model_name = model_name
         self._tts = None          # lazy — chưa load lúc khởi tạo
-        self._executor = None
+        # max_workers=1: XTTS model không thread-safe, chỉ cho phép 1 synthesis tại một thời điểm
+        self._executor = ThreadPoolExecutor(max_workers=1)
 
     def _get_tts(self):
         """Load model lần đầu tiên khi cần, cache lại cho các lần sau."""
@@ -208,15 +212,23 @@ class CoquiXTTSHandler(BaseTTSHandler):
             except ImportError as exc:
                 raise RuntimeError("Thiếu soundfile. Chạy: pip install soundfile") from exc
 
+            import os
+            speaker_wav = self._speaker_wav
+            if hasattr(chunk, "voice") and chunk.voice:
+                dynamic_voice_path = os.path.join("voices", chunk.voice)
+                if os.path.isfile(dynamic_voice_path):
+                    speaker_wav = dynamic_voice_path
+
             logger.debug(
-                "XTTS synthesize | lang=%s | text=%r",
+                "XTTS synthesize | lang=%s | text=%r | voice=%s",
                 self._language,
                 chunk.text[:60],
+                speaker_wav,
             )
 
             wav: list[float] = self._get_tts().tts(
                 text=chunk.text,
-                speaker_wav=self._speaker_wav,
+                speaker_wav=speaker_wav,
                 language=self._language,
             )
 
@@ -303,3 +315,40 @@ def get_tts_handler() -> BaseTTSHandler:
 
 def audio_to_base64(audio_bytes: bytes) -> str:
     return base64.b64encode(audio_bytes).decode("utf-8")
+
+
+def pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 44100, channels: int = 1, sampwidth: int = 2) -> bytes:
+    """Wrap raw PCM bytes in a proper WAV (RIFF) container."""
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(sampwidth)       # 2 = 16-bit
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_bytes)
+    return buf.getvalue()
+
+
+def is_wav(data: bytes) -> bool:
+    return data[:4] == b'RIFF' and data[8:12] == b'WAVE'
+
+
+def is_mp3(data: bytes) -> bool:
+    return data[:3] == b'ID3' or (len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0)
+
+
+def ensure_wav(audio_bytes: bytes, pcm_sample_rate: int = 44100) -> bytes:
+    """
+    Convert audio_bytes to WAV if not already.
+    - WAV (RIFF): return as-is
+    - Raw PCM (no header): wrap with WAV header
+    - MP3: cannot convert without ffmpeg — return as-is (Rhubarb will fail gracefully)
+    """
+    if not audio_bytes:
+        return audio_bytes
+    if is_wav(audio_bytes):
+        return audio_bytes
+    if is_mp3(audio_bytes):
+        # MP3 cannot be decoded to WAV without ffmpeg — caller handles gracefully
+        return audio_bytes
+    # Assume raw PCM (ElevenLabs pcm_44100 / pcm_22050 output)
+    return pcm_to_wav(audio_bytes, sample_rate=pcm_sample_rate)

@@ -33,7 +33,7 @@ Stage 1 — Short-term History + Session Identity
 |---|---|
 | `backend/app/config.py` | + `max_history_turns`, `character_name`, `character_persona` |
 | `backend/app/models.py` | `UserMessagePayload` + optional `user_id`, `session_id` |
-| `backend/app/llm_handler.py` | `stream_tokens(user_text, history=None, memory_context=None)` — build full messages array |
+| `backend/app/llm_handler.py` | `stream_tokens(user_text, history=None, memory_context=None)` — build full messages array. **Note:** main dùng `BaseLLMHandler` abstract + `get_llm_handler()` factory — cần update signature ở cả `OllamaHandler` và `DeepSeekHandler` |
 | `backend/app/orchestrator.py` | Nhận `session_store`, `session_id`; get_history trước LLM; append_turn sau |
 | `backend/app/main.py` | Khởi tạo SessionStore; parse user_id/session_id; truyền vào orchestrator |
 | `frontend/src/store/chatStore.ts` | + `userId` (localStorage), `sessionId` (per mount) |
