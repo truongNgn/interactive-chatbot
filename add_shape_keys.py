@@ -11,7 +11,7 @@ Strategy:
 Run:
   blender --background --python add_shape_keys.py
 
-Env vars (optional — default to frontend/public/models/fashion_girl_asian_girl.glb):
+Env vars (optional — default to frontend/public/models/person.glb):
   GLB_IN   — path to the source .glb to import
   GLB_OUT  — path to write the exported .glb with shape keys
 
