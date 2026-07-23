@@ -3,6 +3,9 @@ venv/
 .venv/
 env/
 
+# Claude Code local state (worktrees, session data) — machine-local, not project source
+.claude/
+
 # Environment/secrets
 .env
 .env.*

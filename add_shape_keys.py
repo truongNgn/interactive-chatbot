@@ -10,16 +10,28 @@ Strategy:
 
 Run:
   blender --background --python add_shape_keys.py
+
+Env vars (optional — default to frontend/public/models/fashion_girl_asian_girl.glb):
+  GLB_IN   — path to the source .glb to import
+  GLB_OUT  — path to write the exported .glb with shape keys
+
+  # Windows (PowerShell)
+  $env:GLB_IN="C:\path\model.glb"; $env:GLB_OUT="C:\path\model_out.glb"; blender --background --python add_shape_keys.py
 """
 
+import os
 import sys
 import math
 import bpy
 import bmesh
 from mathutils import Vector
 
-GLB_IN  = r"D:\Coder-IT\AI\interactive-chatbot\frontend\public\models\fashion_girl_asian_girl.glb"
-GLB_OUT = r"D:\Coder-IT\AI\interactive-chatbot\frontend\public\models\fashion_girl_asian_girl.glb"
+_DEFAULT_GLB = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "frontend", "public", "models", "fashion_girl_asian_girl.glb",
+)
+GLB_IN  = os.environ.get("GLB_IN", _DEFAULT_GLB)
+GLB_OUT = os.environ.get("GLB_OUT", _DEFAULT_GLB)
 
 # ── 1. Clear scene ─────────────────────────────────────────────────────────────
 bpy.ops.object.select_all(action='SELECT')
