@@ -1,11 +1,12 @@
 import { create } from 'zustand'
-import type { AudioChunkPayload, ChatMessage, Emotion, LlmProvider, Project, Session, WsStatus } from '../types'
+import type { AudioChunkPayload, ChatMessage, Emotion, LlmProvider, Project, Session, WarmupStatus, WsStatus } from '../types'
 
 const MAX_SESSIONS = 100 // Increased for better project management
 const SESSIONS_KEY = 'chatbot_sessions'
 const PROJECTS_KEY = 'chatbot_projects'
 const TTS_KEY = 'chatbot_tts_enabled'
 const ROUTER_KEY = 'chatbot_router_enabled'
+const AUTO_SEND_VOICE_KEY = 'chatbot_auto_send_voice_transcript'
 
 function generateTitle(text: string): string {
   const words = text.trim().split(/\s+/).slice(0, 8).join(' ')
@@ -60,6 +61,15 @@ function loadRouterEnabled(): boolean {
   }
 }
 
+function loadAutoSendVoiceTranscript(): boolean {
+  try {
+    const raw = localStorage.getItem(AUTO_SEND_VOICE_KEY)
+    return raw === null ? true : raw === 'true'
+  } catch {
+    return true
+  }
+}
+
 interface ChatState {
   // WebSocket
   wsStatus: WsStatus
@@ -90,6 +100,12 @@ interface ChatState {
   // Router toggle
   routerEnabled: boolean
 
+  // Voice input
+  autoSendVoiceTranscript: boolean
+
+  // Backend warmup
+  warmupStatus: WarmupStatus | null
+
   // User identity
   userId: string
 
@@ -106,6 +122,8 @@ interface ChatState {
   setLlmProvider: (provider: LlmProvider) => void
   setTtsEnabled: (val: boolean) => void
   setRouterEnabled: (val: boolean) => void
+  setAutoSendVoiceTranscript: (val: boolean) => void
+  setWarmupStatus: (status: WarmupStatus | null) => void
 
   // Session actions
   createNewSession: () => string    // returns new sessionId
@@ -145,6 +163,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   llmProvider: 'ollama',
   ttsEnabled: loadTtsEnabled(),
   routerEnabled: loadRouterEnabled(),
+  autoSendVoiceTranscript: loadAutoSendVoiceTranscript(),
+  warmupStatus: null,
   userId: (() => {
     let id = localStorage.getItem('chat_user_id')
     if (!id) { id = crypto.randomUUID(); localStorage.setItem('chat_user_id', id) }
@@ -192,6 +212,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ routerEnabled: val })
     try { localStorage.setItem(ROUTER_KEY, String(val)) } catch {}
   },
+
+  setAutoSendVoiceTranscript: (val) => {
+    set({ autoSendVoiceTranscript: val })
+    try { localStorage.setItem(AUTO_SEND_VOICE_KEY, String(val)) } catch {}
+  },
+
+  setWarmupStatus: (status) => set({ warmupStatus: status }),
 
   createNewSession: () => {
     const newId = crypto.randomUUID()

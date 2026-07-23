@@ -67,6 +67,7 @@ class OllamaHandler(BaseLLMHandler):
                 model=self.model,
                 messages=messages,
                 stream=True,
+                keep_alive=settings.ollama_keep_alive,
             ):
                 token: str = part["message"]["content"]
                 if token:
@@ -92,8 +93,13 @@ class OllamaHandler(BaseLLMHandler):
         logger.info("Ollama: warming up model '%s' into VRAM...", self.model)
         try:
             # Consume toàn bộ stream của câu ngắn để đảm bảo model fully loaded
-            async for _ in self.stream_tokens("Hi"):
-                pass
+            await self._client.generate(
+                model=self.model,
+                prompt="Hi",
+                stream=False,
+                keep_alive=settings.ollama_keep_alive,
+                options={"num_predict": 1},
+            )
             logger.info("Ollama: warmup complete — model ready.")
         except Exception as exc:
             logger.warning("Ollama warmup failed (non-fatal): %s", exc)

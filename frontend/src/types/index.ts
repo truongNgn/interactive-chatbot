@@ -94,4 +94,28 @@ export interface ModelChangedPayload {
 export interface ConnectedPayload {
   type: 'connected'
   provider: LlmProvider
+  warmup?: WarmupStatus
+}
+
+export interface SttStatus {
+  enabled: boolean
+  provider: string
+  language: string | null
+  max_file_mb: number
+  max_duration_seconds: number
+}
+
+export interface TranscribeResult {
+  text: string
+  language: string | null
+  confidence: number | null
+}
+
+export interface WarmupStatus {
+  status: 'idle' | 'running' | 'ready' | 'degraded' | 'disabled' | 'cancelled'
+  started_at: number | null
+  finished_at: number | null
+  duration_ms: number | null
+  warmed: string[]
+  failed: Record<string, string>
 }

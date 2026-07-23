@@ -93,6 +93,7 @@ class Orchestrator:
         sentence_queue: asyncio.Queue[SentenceChunk | None],
         voice: str | None = None,
         router_enabled: bool = True,
+        character_id: str | None = None,
     ) -> None:
         """
         Chạy pipeline LLM -> sentence-buffering -> queue.
@@ -107,11 +108,19 @@ class Orchestrator:
             from app.router import HeuristicRouter, build_routing_context
             from app.config import settings
 
+            resolved_character_id = character_id or settings.default_character_id
+
             selected_model: str | None = None
             if router_enabled:
+                if settings.llm_provider.lower().strip() == "vllm":
+                    large_model = settings.vllm_large_model
+                    small_model = settings.vllm_small_model
+                else:
+                    large_model = settings.ollama_large_model
+                    small_model = settings.ollama_small_model
                 router = HeuristicRouter(
-                    large_model=settings.ollama_large_model,
-                    small_model=settings.ollama_small_model,
+                    large_model=large_model,
+                    small_model=small_model,
                 )
                 decision = router.select_model(build_routing_context(user_text))
                 selected_model = decision.model
@@ -120,13 +129,27 @@ class Orchestrator:
 
             # Start graph run in background
             graph_task = asyncio.create_task(
-                graph.ainvoke({
-                    "user_id": user_id,
-                    "session_id": session_id,
-                    "user_text": user_text,
-                    "selected_model": selected_model,
-                    "token_queue": token_queue,
-                })
+                graph.ainvoke(
+                    {
+                        "user_id": user_id,
+                        "session_id": session_id,
+                        "character_id": resolved_character_id,
+                        "user_text": user_text,
+                        "selected_model": selected_model,
+                        "token_queue": token_queue,
+                    },
+                    config={
+                        "run_name": "interactive_chatbot_turn",
+                        "tags": ["websocket", "langgraph", "streaming"],
+                        "metadata": {
+                            "session_id": session_id,
+                            "user_id": user_id,
+                            "character_id": resolved_character_id,
+                            "selected_model": selected_model,
+                            "router_enabled": router_enabled,
+                        },
+                    },
+                )
             )
 
             while True:

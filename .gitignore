@@ -30,6 +30,11 @@ node_modules/
 # Python cache/build
 __pycache__/
 *.py[cod]
+backend/venv_vllm/
+
+# Generated data — vector DBs & lore parent store (personal/runtime data, not source)
+backend/chroma_data/
+backend/lore_data/
 
 # Bỏ qua các file log lỗi (tùy chọn nhưng nên có)
 npm-debug.log*
@@ -44,3 +49,24 @@ yarn-error.log*
 # Ignore generated/public model asset folders
 frontend/dist/models/
 frontend/public/models/
+
+# Internal dev/agent notes & personal planning docs — not for public repo
+BRAIN.md
+developer_log.md
+claude.md
+gemini.md
+AGENTS.md
+GUIDE.md
+WORKFLOW.md
+RAG_workflow.md
+Upgrade_1_Jarvis.md
+implementation_plan.md
+implement_claude_simulator.md
+implement_roleplay.md
+implement_roleplay_langchain.md
+start_up.md
+AI_Engineer_Implementation_Plan.md
+AI_Engineer_Roadmap.md
+mic_audio_implement.md
+docs/INTERVIEW_PREP.md
+docs/CHARACTER_BRAIN_IMPLEMENTATION_PLAN.md

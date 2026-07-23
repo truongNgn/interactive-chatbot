@@ -9,15 +9,18 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.character_registry import character_registry
 from app.config import settings
 from app.llm_handler import get_llm_handler
 from app.models import AudioChunkPayload, DonePayload, ErrorPayload, VisemeEntry
 from app.orchestrator import Orchestrator
 from app.rhubarb_handler import get_visemes
+from app.stt_handler import BaseSTTHandler, get_stt_handler, validate_audio_upload
 from app.tts_handler import BaseTTSHandler, audio_to_base64, get_tts_handler
+from app.warmup import start_background_warmup, warmup_state
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -27,34 +30,44 @@ logger = logging.getLogger(__name__)
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BACKEND_ROOT.parent
+SUPPORTED_VOICE_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".m4a"}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── LLM warmup ────────────────────────────────────────────────────────────
-    # Gửi dummy request để Ollama load model vào VRAM trước request đầu tiên.
-    llm = get_llm_handler()
-    llm_ok = await llm.health_check()
-    if llm_ok:
-        logger.info("LLM: provider='%s' is ready.", settings.llm_provider)
-        await llm.warmup()
-    else:
-        logger.warning("LLM: provider='%s' not ready — skipping warmup.", settings.llm_provider)
-
-    # ── TTS warmup ────────────────────────────────────────────────────────────
-    # Pre-load XTTS vào GPU ngay khi server start (không lazy nữa).
+    # ── TTS handler setup ─────────────────────────────────────────────────────
+    # Heavy LLM/XTTS warm-up runs in the background by default so FastAPI can
+    # accept WebSocket connections immediately after the process starts.
     tts = get_tts_handler()
     if tts.is_active:
         if settings.elevenlabs_api_key:
             logger.info("TTS: ElevenLabs ready (voice=%s).", settings.elevenlabs_voice_id)
         else:
-            logger.info("TTS: Coqui XTTS-v2 — starting warmup...")
-            await tts.warmup()
+            logger.info("TTS: Coqui XTTS-v2 configured; background warmup will preload it.")
     else:
         logger.warning("TTS: Running in text-only mode.")
 
+    stt = get_stt_handler()
+    if stt.is_active:
+        logger.info("STT: %s ready.", settings.stt_provider)
+    else:
+        logger.info("STT: disabled.")
+
     app.state.tts_handler = tts
-    yield
+    app.state.stt_handler = stt
+    warmup_task = start_background_warmup(tts, stt)
+    if warmup_task and settings.warmup_blocking:
+        logger.info("Warmup: blocking startup until warmup completes...")
+        await warmup_task
+    try:
+        yield
+    finally:
+        if warmup_task and not warmup_task.done():
+            warmup_task.cancel()
+            try:
+                await warmup_task
+            except asyncio.CancelledError:
+                logger.info("Warmup: cancelled during shutdown.")
 
 
 app = FastAPI(
@@ -80,6 +93,7 @@ async def health():
     return {
         "status": "ok" if llm_ok else "degraded",
         "llm": {"provider": settings.llm_provider, "ready": llm_ok},
+        "warmup": warmup_state.to_dict(),
         "tts": {
             "provider": (
                 "elevenlabs" if settings.elevenlabs_api_key
@@ -87,6 +101,11 @@ async def health():
                 else "none"
             ),
             "ready": tts.is_active,
+        },
+        "stt": {
+            "provider": settings.stt_provider if settings.stt_enabled else "none",
+            "ready": app.state.stt_handler.is_active,
+            "language": settings.stt_language or None,
         },
     }
 
@@ -98,9 +117,14 @@ async def get_voices():
         return {"voices": []}
     voices = sorted(
         f.name for f in voices_dir.iterdir()
-        if f.is_file() and f.suffix.lower() == ".wav"
+        if f.is_file() and f.suffix.lower() in SUPPORTED_VOICE_SUFFIXES
     )
     return {"voices": voices}
+
+
+@app.get("/api/characters")
+async def get_characters():
+    return {"characters": character_registry.list_public(), "default": settings.default_character_id}
 
 
 @app.get("/api/models")
@@ -115,6 +139,41 @@ async def get_models():
     return {"models": models}
 
 
+@app.get("/api/stt/status")
+async def get_stt_status():
+    stt: BaseSTTHandler = app.state.stt_handler
+    return {
+        "enabled": stt.is_active,
+        "provider": settings.stt_provider if stt.is_active else "none",
+        "language": settings.stt_language or None,
+        "max_file_mb": settings.stt_max_file_mb,
+        "max_duration_seconds": settings.stt_max_duration_seconds,
+    }
+
+
+@app.post("/api/stt")
+async def transcribe_audio(
+    audio: UploadFile = File(...),
+    mime_type: str = Form(""),
+):
+    stt: BaseSTTHandler = app.state.stt_handler
+    if not stt.is_active:
+        raise HTTPException(status_code=503, detail="STT is not enabled.")
+
+    resolved_mime_type = mime_type or audio.content_type or ""
+    audio_bytes = await audio.read()
+    try:
+        validate_audio_upload(audio_bytes, resolved_mime_type)
+        result = await stt.transcribe(audio_bytes, resolved_mime_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("STT transcription failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return result.model_dump()
+
+
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
     await websocket.accept()
@@ -127,9 +186,21 @@ async def websocket_chat(websocket: WebSocket):
     current_task: asyncio.Task | None = None
 
     # Thông báo provider hiện tại cho client ngay khi connect
-    await websocket.send_text(json.dumps({"type": "connected", "provider": current_provider}))
+    await websocket.send_text(json.dumps({
+        "type": "connected",
+        "provider": current_provider,
+        "warmup": warmup_state.to_dict(),
+    }))
 
-    async def _run_pipeline(user_text: str, session_id: str, user_id: str, tts_enabled: bool = True, voice: str | None = None, router_enabled: bool = True) -> None:
+    async def _run_pipeline(
+        user_text: str,
+        session_id: str,
+        user_id: str,
+        tts_enabled: bool = True,
+        voice: str | None = None,
+        router_enabled: bool = True,
+        character_id: str | None = None,
+    ) -> None:
         """
         3-stage pipelined pipeline để giảm latency:
 
@@ -144,7 +215,9 @@ async def websocket_chat(websocket: WebSocket):
 
         # Stage 1: LLM → sentence_queue
         producer = asyncio.create_task(
-            orchestrator.run(user_text, session_id, user_id, sentence_queue, voice, router_enabled)
+            orchestrator.run(
+                user_text, session_id, user_id, sentence_queue, voice, router_enabled, character_id
+            )
         )
 
         async def _tts_producer() -> None:
@@ -275,7 +348,13 @@ async def websocket_chat(websocket: WebSocket):
                 tts_enabled: bool = bool(data.get("tts_enabled", True))
                 # router_enabled: frontend toggle overrides server default per-request
                 router_enabled: bool = bool(data.get("router_enabled", settings.router_enabled))
+                character_id: str = data.get("character_id", settings.default_character_id)
                 voice: str | None = data.get("voice", None)
+                if not voice:
+                    # No explicit voice from client — use the selected character's default voice.
+                    character = character_registry.get(character_id)
+                    if character:
+                        voice = character.get("voice")
                 if not user_text:
                     await websocket.send_text(
                         ErrorPayload(message="Empty message").model_dump_json()
@@ -284,11 +363,11 @@ async def websocket_chat(websocket: WebSocket):
 
                 await _cancel_current()
                 logger.info(
-                    "New message from %s [session=%s, tts=%s, router=%s, voice=%s]: %r",
-                    client, session_id, tts_enabled, router_enabled, voice, user_text[:80],
+                    "New message from %s [session=%s, character=%s, tts=%s, router=%s, voice=%s]: %r",
+                    client, session_id, character_id, tts_enabled, router_enabled, voice, user_text[:80],
                 )
                 current_task = asyncio.create_task(
-                    _run_pipeline(user_text, session_id, user_id, tts_enabled, voice, router_enabled)
+                    _run_pipeline(user_text, session_id, user_id, tts_enabled, voice, router_enabled, character_id)
                 )
 
             else:

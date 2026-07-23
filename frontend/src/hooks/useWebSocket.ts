@@ -13,7 +13,7 @@ export function useWebSocket(onClearQueue?: () => void) {
   const onClearQueueRef = useRef(onClearQueue)
   onClearQueueRef.current = onClearQueue
 
-  const { setWsStatus, addMessage, enqueueAudio, clearQueue, setLlmProvider } = useChatStore.getState()
+  const { setWsStatus, addMessage, enqueueAudio, clearQueue, setLlmProvider, setWarmupStatus } = useChatStore.getState()
 
   const connect = useCallback(() => {
     if (!isMounted.current) return
@@ -73,6 +73,10 @@ export function useWebSocket(onClearQueue?: () => void) {
           break
 
         case 'connected':
+          setLlmProvider(msg.provider)
+          setWarmupStatus(msg.warmup ?? null)
+          break
+
         case 'model_changed':
           setLlmProvider(msg.provider)
           break
@@ -87,7 +91,7 @@ export function useWebSocket(onClearQueue?: () => void) {
           break
       }
     }
-  }, [setWsStatus, addMessage, enqueueAudio, clearQueue, setLlmProvider])
+  }, [setWsStatus, addMessage, enqueueAudio, clearQueue, setLlmProvider, setWarmupStatus])
 
   useEffect(() => {
     isMounted.current = true

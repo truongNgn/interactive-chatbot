@@ -24,7 +24,7 @@ export const lipSyncState: {
   startTime: number   // AudioContext.currentTime at playback start
   ctx: AudioContext | null
   analyser: AnalyserNode | null  // amplitude fallback when no Rhubarb visemes
-  _dataBuffer: Uint8Array | null
+  _dataBuffer: Uint8Array<ArrayBuffer> | null
 } = {
   visemes: [],
   startTime: 0,

@@ -11,6 +11,9 @@ interface UseVADOptions {
 interface UseVADReturn {
   startListening: () => Promise<void>
   stopListening: () => void
+  pauseVAD: () => void
+  resumeVAD: () => void
+  getStream: () => MediaStream | null
   isListening: boolean
 }
 
@@ -24,12 +27,49 @@ export function useVAD({ onVoiceDetected, isAISpeaking }: UseVADOptions): UseVAD
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastInterruptRef = useRef<number>(0)
   const dataArrayRef = useRef<Float32Array | null>(null)
+  const isListeningRef = useRef(false)
+  const onVoiceDetectedRef = useRef(onVoiceDetected)
+  const isAISpeakingRef = useRef(isAISpeaking)
 
-  const stopListening = useCallback(() => {
+  onVoiceDetectedRef.current = onVoiceDetected
+  isAISpeakingRef.current = isAISpeaking
+
+  const pauseVAD = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
       intervalRef.current = null
     }
+  }, [])
+
+  const resumeVAD = useCallback(() => {
+    if (intervalRef.current || !analyserRef.current || !dataArrayRef.current) return
+
+    intervalRef.current = setInterval(() => {
+      if (!analyserRef.current || !dataArrayRef.current) return
+
+      analyserRef.current.getFloatTimeDomainData(dataArrayRef.current as Float32Array<ArrayBuffer>)
+
+      // Tính RMS (Root Mean Square) của frame hiện tại
+      let sumSq = 0
+      for (const sample of dataArrayRef.current) {
+        sumSq += sample * sample
+      }
+      const rms = Math.sqrt(sumSq / dataArrayRef.current.length)
+
+      const now = Date.now()
+      if (
+        rms > RMS_THRESHOLD &&
+        isAISpeakingRef.current() &&
+        now - lastInterruptRef.current > INTERRUPT_COOLDOWN_MS
+      ) {
+        lastInterruptRef.current = now
+        onVoiceDetectedRef.current()
+      }
+    }, 100)
+  }, [])
+
+  const stopListening = useCallback(() => {
+    pauseVAD()
     sourceRef.current?.disconnect()
     streamRef.current?.getTracks().forEach(t => t.stop())
     audioCtxRef.current?.close()
@@ -39,11 +79,12 @@ export function useVAD({ onVoiceDetected, isAISpeaking }: UseVADOptions): UseVAD
     sourceRef.current = null
     streamRef.current = null
     dataArrayRef.current = null
+    isListeningRef.current = false
     setIsListening(false)
-  }, [])
+  }, [pauseVAD])
 
   const startListening = useCallback(async () => {
-    if (isListening) return
+    if (isListeningRef.current) return
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
@@ -62,34 +103,15 @@ export function useVAD({ onVoiceDetected, isAISpeaking }: UseVADOptions): UseVAD
 
       dataArrayRef.current = new Float32Array(analyser.fftSize) as Float32Array<ArrayBuffer>
 
-      intervalRef.current = setInterval(() => {
-        if (!analyserRef.current || !dataArrayRef.current) return
-
-        analyserRef.current.getFloatTimeDomainData(dataArrayRef.current as Float32Array<ArrayBuffer>)
-
-        // Tính RMS (Root Mean Square) của frame hiện tại
-        let sumSq = 0
-        for (const sample of dataArrayRef.current) {
-          sumSq += sample * sample
-        }
-        const rms = Math.sqrt(sumSq / dataArrayRef.current.length)
-
-        const now = Date.now()
-        if (
-          rms > RMS_THRESHOLD &&
-          isAISpeaking() &&
-          now - lastInterruptRef.current > INTERRUPT_COOLDOWN_MS
-        ) {
-          lastInterruptRef.current = now
-          onVoiceDetected()
-        }
-      }, 100)
-
+      isListeningRef.current = true
       setIsListening(true)
+      resumeVAD()
     } catch (err) {
       console.warn('VAD: microphone access denied or unavailable', err)
     }
-  }, [isListening, isAISpeaking, onVoiceDetected])
+  }, [resumeVAD])
 
-  return { startListening, stopListening, isListening }
+  const getStream = useCallback(() => streamRef.current, [])
+
+  return { startListening, stopListening, pauseVAD, resumeVAD, getStream, isListening }
 }

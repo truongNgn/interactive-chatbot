@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { useChatStore } from '../store/chatStore'
-import { Scene } from './Scene'
+
+const Scene = lazy(() => import('./Scene').then((module) => ({ default: module.Scene })))
 
 type AssetDropdownProps = {
   label: string
@@ -27,7 +28,7 @@ function AssetDropdown({
   const listId = `${label.toLowerCase().replace(/\s+/g, '-')}-asset-list`
 
   return (
-    <div style={s.controlRow}>
+    <div style={{ ...s.controlRow, zIndex: open ? 100 : 1 }}>
       <span style={s.label}>{label}</span>
       <div style={s.dropdown}>
         <button
@@ -136,8 +137,19 @@ export function RightSidebar() {
 
       {/* 3D Scene Container */}
       <div style={s.sceneContainer}>
-        <Scene />
+        <Suspense fallback={<SceneLoading />}>
+          <Scene />
+        </Suspense>
       </div>
+    </div>
+  )
+}
+
+function SceneLoading() {
+  return (
+    <div style={s.sceneLoading}>
+      <div style={s.sceneLoadingMark}>◇</div>
+      <div style={s.sceneLoadingText}>Loading avatar</div>
     </div>
   )
 }
@@ -175,6 +187,7 @@ const s: Record<string, React.CSSProperties> = {
     background: 'rgba(255,255,255,0.06)',
   },
   controlRow: {
+    position: 'relative',
     display: 'flex',
     flexDirection: 'column',
     gap: 6,
@@ -225,7 +238,7 @@ const s: Record<string, React.CSSProperties> = {
     top: 'calc(100% + 4px)',
     left: 0,
     right: 0,
-    zIndex: 40,
+    zIndex: 1000,
     maxHeight: 168,
     overflowY: 'auto',
     padding: 4,
@@ -263,5 +276,26 @@ const s: Record<string, React.CSSProperties> = {
     position: 'relative',
     background: 'linear-gradient(180deg, #0d1117 0%, #161b27 100%)',
     overflow: 'hidden',
+  },
+  sceneLoading: {
+    position: 'absolute',
+    inset: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    color: '#94a3b8',
+    background: 'linear-gradient(180deg, #0d1117 0%, #161b27 100%)',
+  },
+  sceneLoadingMark: {
+    fontSize: 28,
+    color: '#60a5fa',
+  },
+  sceneLoadingText: {
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
   },
 }

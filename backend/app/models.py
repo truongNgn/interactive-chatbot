@@ -71,3 +71,11 @@ class ErrorPayload(BaseModel):
 
 class DonePayload(BaseModel):
     type: str = "done"
+
+
+# --- REST API models ---
+
+class TranscribeResult(BaseModel):
+    text: str
+    language: str | None = None
+    confidence: float | None = None

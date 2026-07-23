@@ -21,7 +21,7 @@ export function App() {
     [],
   )
 
-  const { startListening, stopListening } = useVAD({
+  const { startListening, stopListening, pauseVAD, resumeVAD, getStream } = useVAD({
     onVoiceDetected: handleInterrupt,
     isAISpeaking,
   })
@@ -41,7 +41,13 @@ export function App() {
     <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex' }}>
       <Sidebar onNewSession={handleNewSession} sendSetModel={sendSetModel} />
       <div style={{ flex: 1, position: 'relative' }}>
-        <ChatInterface sendMessage={sendMessage} sendInterrupt={handleInterrupt} />
+        <ChatInterface
+          sendMessage={sendMessage}
+          sendInterrupt={handleInterrupt}
+          pauseVAD={pauseVAD}
+          resumeVAD={resumeVAD}
+          getVADStream={getStream}
+        />
       </div>
       <RightSidebar />
     </div>

@@ -47,18 +47,22 @@ def _extract_facts(text: str) -> list[tuple[str, str]]:
     return found
 
 
-async def enrich_with_memory(user_id: str, query: str) -> str | None:
-    return await retrieve_memories(user_id, query)
+async def enrich_with_memory(user_id: str, character_id: str, query: str) -> str | None:
+    return await retrieve_memories(user_id, character_id, query)
 
 
-def schedule_persist(user_id: str, session_id: str, user_text: str, assistant_text: str, emotion: str) -> None:
-    asyncio.create_task(_persist(user_id, session_id, user_text, assistant_text, emotion))
+def schedule_persist(
+    user_id: str, session_id: str, character_id: str, user_text: str, assistant_text: str, emotion: str
+) -> None:
+    asyncio.create_task(_persist(user_id, session_id, character_id, user_text, assistant_text, emotion))
 
 
-async def _persist(user_id: str, session_id: str, user_text: str, assistant_text: str, emotion: str):
-    # Store raw conversation turns
-    await store_turn(user_id, session_id, "user", user_text, "neutral")
-    await store_turn(user_id, session_id, "assistant", assistant_text, emotion)
+async def _persist(
+    user_id: str, session_id: str, character_id: str, user_text: str, assistant_text: str, emotion: str
+):
+    # Store raw conversation turns (scoped to this character — see memory_store.store_turn)
+    await store_turn(user_id, session_id, character_id, "user", user_text, "neutral")
+    await store_turn(user_id, session_id, character_id, "assistant", assistant_text, emotion)
 
     # Extract and store structured facts from user message
     facts = _extract_facts(user_text)

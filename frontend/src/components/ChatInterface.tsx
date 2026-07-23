@@ -4,12 +4,16 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useSpeechInput } from '../hooks/useSpeechInput'
 import { useChatStore } from '../store/chatStore'
 import type { Emotion } from '../types'
 
 interface ChatInterfaceProps {
   sendMessage: (text: string) => void
   sendInterrupt: () => void
+  pauseVAD: () => void
+  resumeVAD: () => void
+  getVADStream: () => MediaStream | null
 }
 
 const EMOTION_COLORS: Record<Emotion, string> = {
@@ -21,23 +25,82 @@ const EMOTION_COLORS: Record<Emotion, string> = {
   anger: '#f87171',
 }
 
-export function ChatInterface({ sendMessage, sendInterrupt }: ChatInterfaceProps) {
+export function ChatInterface({
+  sendMessage,
+  sendInterrupt,
+  pauseVAD,
+  resumeVAD,
+  getVADStream,
+}: ChatInterfaceProps) {
   const [inputText, setInputText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const { messages, wsStatus, isAISpeaking, currentEmotion, ttsEnabled } = useChatStore()
+  const {
+    messages,
+    wsStatus,
+    isAISpeaking,
+    currentEmotion,
+    ttsEnabled,
+    autoSendVoiceTranscript,
+    warmupStatus,
+  } = useChatStore()
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length])
 
-  const handleSend = useCallback(() => {
-    const text = inputText.trim()
-    if (!text || wsStatus !== 'open') return
+  const sendUserText = useCallback((rawText: string): boolean => {
+    const text = rawText.trim()
+    if (!text || wsStatus !== 'open') return false
     useChatStore.getState().addMessage({ id: crypto.randomUUID(), role: 'user', text })
     sendMessage(text)
-    setInputText('')
-  }, [inputText, wsStatus, sendMessage])
+    return true
+  }, [wsStatus, sendMessage])
+
+  const handleSend = useCallback(() => {
+    if (sendUserText(inputText)) {
+      setInputText('')
+    }
+  }, [inputText, sendUserText])
+
+  const handleVoiceTranscript = useCallback((text: string) => {
+    if (autoSendVoiceTranscript) {
+      if (sendUserText(text)) {
+        setInputText('')
+      }
+      return
+    }
+    setInputText(text)
+  }, [autoSendVoiceTranscript, sendUserText])
+
+  const speechInput = useSpeechInput({
+    onTranscript: handleVoiceTranscript,
+    pauseVAD,
+    resumeVAD,
+    getStream: getVADStream,
+    maxRecordingSeconds: 60,
+  })
+  const voiceInputBusy = (
+    speechInput.state === 'listening' ||
+    speechInput.state === 'recording' ||
+    speechInput.state === 'processing' ||
+    speechInput.state === 'uploading'
+  )
+
+  const handleMicClick = useCallback(() => {
+    if (wsStatus !== 'open' || !speechInput.supported) return
+
+    if (voiceInputBusy) {
+      speechInput.stopRecording()
+      return
+    }
+
+    if (isAISpeaking) {
+      sendInterrupt()
+    }
+
+    speechInput.startRecording()
+  }, [isAISpeaking, sendInterrupt, speechInput, voiceInputBusy, wsStatus])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -50,6 +113,21 @@ export function ChatInterface({ sendMessage, sendInterrupt }: ChatInterfaceProps
   )
 
   const isEmpty = messages.length === 0
+  const warmupRunning = warmupStatus?.status === 'running'
+  const micDisabled = wsStatus !== 'open' || !speechInput.supported || speechInput.permissionDenied
+  const voiceStateLabel = {
+    idle: '',
+    listening: 'Listening',
+    recording: 'Recording',
+    processing: 'Processing',
+    uploading: 'Transcribing',
+    error: 'Voice input error',
+  }[speechInput.state]
+  const micTitle = !speechInput.supported
+    ? 'Voice input is not supported'
+    : speechInput.permissionDenied
+      ? 'Microphone access denied'
+    : speechInput.errorMessage ?? `${speechInput.mode === 'backend' ? 'Backend STT' : 'Browser speech'} · ${autoSendVoiceTranscript ? 'Auto send' : 'Review transcript'}`
 
   return (
     <div style={s.container}>
@@ -110,6 +188,35 @@ export function ChatInterface({ sendMessage, sendInterrupt }: ChatInterfaceProps
                 ◼
               </button>
             )}
+            <div
+              style={{
+                ...s.micWrap,
+                transform: `scale(${1 + speechInput.micLevel * 0.06})`,
+                boxShadow: voiceInputBusy
+                  ? `0 0 0 ${2 + speechInput.micLevel * 8}px rgba(45,212,191,${0.08 + speechInput.micLevel * 0.16})`
+                  : 'none',
+              }}
+            >
+              <button
+                onClick={handleMicClick}
+                disabled={micDisabled}
+                style={{
+                  ...s.micBtn,
+                  ...(speechInput.state === 'listening' || speechInput.state === 'recording' ? s.micBtnListening : null),
+                  ...(speechInput.state === 'error' ? s.micBtnError : null),
+                  opacity: micDisabled ? 0.4 : 1,
+                }}
+                title={micTitle}
+              >
+                {speechInput.state === 'uploading' || speechInput.state === 'processing'
+                  ? '…'
+                  : voiceInputBusy
+                    ? '⏹'
+                    : speechInput.state === 'error'
+                      ? '!'
+                      : '🎤'}
+              </button>
+            </div>
             <button
               onClick={handleSend}
               disabled={wsStatus !== 'open' || !inputText.trim()}
@@ -129,6 +236,18 @@ export function ChatInterface({ sendMessage, sendInterrupt }: ChatInterfaceProps
           <div style={{ ...s.emotionBadge, background: EMOTION_COLORS[currentEmotion] }}>
             {currentEmotion}
           </div>
+        )}
+        {speechInput.state === 'error' && speechInput.errorMessage && (
+          <div style={s.speechErrorBadge}>{speechInput.errorMessage}</div>
+        )}
+        {voiceStateLabel && speechInput.state !== 'error' && (
+          <div style={s.voiceStateBadge}>
+            {voiceStateLabel}
+            {(speechInput.state === 'listening' || speechInput.state === 'recording') && ` · ${speechInput.remainingSeconds}s`}
+          </div>
+        )}
+        {warmupRunning && (
+          <div style={s.warmupBadge}>Backend warming up · voice may take longer</div>
         )}
       </div>
     </div>
@@ -220,6 +339,7 @@ const s: Record<string, React.CSSProperties> = {
     borderRadius: 14,
     padding: '8px 10px 8px 14px',
     backdropFilter: 'blur(8px)',
+    minWidth: 0,
   },
   textarea: {
     flex: 1,
@@ -232,12 +352,20 @@ const s: Record<string, React.CSSProperties> = {
     lineHeight: 1.5,
     fontFamily: 'inherit',
     paddingTop: 2,
+    minWidth: 0,
   },
   inputActions: {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
     paddingBottom: 2,
+    flexShrink: 0,
+  },
+  micWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    transition: 'transform 0.08s linear, box-shadow 0.08s linear',
   },
   stopBtn: {
     background: 'rgba(239,68,68,0.18)',
@@ -251,6 +379,30 @@ const s: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  micBtn: {
+    background: 'rgba(20,184,166,0.16)',
+    border: '1px solid rgba(45,212,191,0.28)',
+    color: '#99f6e4',
+    borderRadius: 8,
+    width: 32,
+    height: 32,
+    fontSize: 14,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'background 0.15s, border-color 0.15s, opacity 0.15s',
+  },
+  micBtnListening: {
+    background: 'rgba(239,68,68,0.2)',
+    borderColor: 'rgba(248,113,113,0.42)',
+    color: '#fecaca',
+  },
+  micBtnError: {
+    background: 'rgba(239,68,68,0.18)',
+    borderColor: 'rgba(248,113,113,0.36)',
+    color: '#fecaca',
   },
   sendBtn: {
     background: 'rgba(99,102,241,0.85)',
@@ -274,5 +426,36 @@ const s: Record<string, React.CSSProperties> = {
     padding: '2px 8px',
     borderRadius: 99,
     textTransform: 'capitalize',
+  },
+  speechErrorBadge: {
+    alignSelf: 'flex-end',
+    maxWidth: '100%',
+    fontSize: 11,
+    color: '#fecaca',
+    background: 'rgba(239,68,68,0.12)',
+    border: '1px solid rgba(248,113,113,0.24)',
+    borderRadius: 8,
+    padding: '3px 8px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  voiceStateBadge: {
+    alignSelf: 'flex-end',
+    fontSize: 11,
+    color: '#99f6e4',
+    background: 'rgba(20,184,166,0.1)',
+    border: '1px solid rgba(45,212,191,0.18)',
+    borderRadius: 8,
+    padding: '3px 8px',
+  },
+  warmupBadge: {
+    alignSelf: 'flex-end',
+    fontSize: 11,
+    color: '#fde68a',
+    background: 'rgba(251,191,36,0.1)',
+    border: '1px solid rgba(251,191,36,0.18)',
+    borderRadius: 8,
+    padding: '3px 8px',
   },
 }

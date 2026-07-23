@@ -3,11 +3,9 @@ import { useChatStore } from '../store/chatStore'
 import type { LlmProvider, Project, Session } from '../types'
 import {
   DndContext,
-  DragOverlay,
   useDraggable,
   useDroppable,
   DragEndEvent,
-  DragStartEvent,
   PointerSensor,
   useSensor,
   useSensors,
@@ -282,17 +280,17 @@ export function Sidebar({ onNewSession, sendSetModel }: SidebarProps) {
     llmProvider,
     ttsEnabled,
     routerEnabled,
-    switchSession,
+    autoSendVoiceTranscript,
     deleteSession,
     setTtsEnabled,
     setRouterEnabled,
+    setAutoSendVoiceTranscript,
     setLlmProvider,
     createProject,
     moveSessionToProject,
   } = useChatStore()
 
   const [confirmId, setConfirmId] = useState<string | null>(null)
-  const [activeDragId, setActiveDragId] = useState<string | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -310,7 +308,6 @@ export function Sidebar({ onNewSession, sendSetModel }: SidebarProps) {
   )
 
   const handleDragEnd = (event: DragEndEvent) => {
-    setActiveDragId(null)
     const { active, over } = event
 
     if (over && active.data.current?.type === 'session' && over.data.current?.type === 'project') {
@@ -321,10 +318,6 @@ export function Sidebar({ onNewSession, sendSetModel }: SidebarProps) {
       // If dropped outside, maybe move back to recent?
       // Actually, if we drop it on the "Recent" area, we should handle that.
     }
-  }
-
-  const handleDragStart = (event: DragStartEvent) => {
-    setActiveDragId(event.active.id as string)
   }
 
   const handleDeleteSession = useCallback((id: string) => {
@@ -376,7 +369,6 @@ export function Sidebar({ onNewSession, sendSetModel }: SidebarProps) {
       <div style={s.sessionList}>
         <DndContext
           sensors={sensors}
-          onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
           {/* Projects Section */}
@@ -421,6 +413,10 @@ export function Sidebar({ onNewSession, sendSetModel }: SidebarProps) {
           <RouterToggle checked={routerEnabled} onChange={setRouterEnabled} />
         </div>
         <div style={s.footerRow}>
+          <span style={s.footerLabel}>🎙 Auto Send</span>
+          <Toggle checked={autoSendVoiceTranscript} onChange={setAutoSendVoiceTranscript} />
+        </div>
+        <div style={s.footerRow}>
           <span style={s.footerLabel}>Model</span>
           <select value={llmProvider} onChange={handleProviderChange} disabled={wsStatus !== 'open'} style={s.select}>
             <option value="ollama">Llama 3</option>
@@ -452,7 +448,6 @@ function RecentDroppableArea({
   onConfirmDelete: (e: React.MouseEvent, id: string) => void
   onCancelDelete: (e: React.MouseEvent) => void
 }) {
-  const { moveSessionToProject } = useChatStore()
   const { isOver, setNodeRef } = useDroppable({
     id: 'recent-area',
     data: { type: 'project', projectId: null }, // Moving to null unassigns
