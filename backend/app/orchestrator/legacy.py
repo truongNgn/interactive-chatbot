@@ -1,75 +1,23 @@
 """
-Orchestrator: nhận token stream từ LLM, gom câu (sentence-buffering),
-bóc tách emotion tag, yield SentenceChunk vào queue cho Stage 2.
+Compatibility sentence producer.
 
-Chiến lược flush để tối ưu latency:
-  - Câu đầu tiên (first_chunk): flush ngay ở dấu phẩy/xuống dòng nếu >= 15 ký tự
-    → user nghe audio đầu tiên sớm nhất có thể
-  - Các câu sau: flush ở dấu câu (.!?) hoặc dấu phẩy nếu >= 80 ký tự
-    → câu dài hơn = ít TTS calls hơn = mượt hơn
+This preserves the original Orchestrator.run() API used by older code while
+delegating sentence-boundary behavior to app.orchestrator.streaming.
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from collections.abc import AsyncGenerator
 
+from app.config import settings
 from app.llm_handler import BaseLLMHandler, get_llm_handler
-from app.models import Emotion, SentenceChunk
+from app.models import SentenceChunk
+from app.orchestrator.routing import HeuristicRouter, build_routing_context
+from app.orchestrator.streaming import flush_buffer, should_flush
 
 logger = logging.getLogger(__name__)
-
-# Regex bắt emotion tag ở đầu chuỗi: [joy], [sad], v.v.
-_EMOTION_TAG_RE = re.compile(
-    r"^\s*\[(joy|sad|neutral|thinking|surprise|anger)\]\s*",
-    re.IGNORECASE,
-)
-
-# Ký tự kết thúc câu (tiếng Anh & Việt)
-_SENTENCE_END_RE = re.compile(r"[.!?。？！]+")
-
-# Dấu phân cách phụ — flush tùy theo ngưỡng
-_CLAUSE_END_RE = re.compile(r"[,;\n—\-–]+")
-
-# Ngưỡng flush:
-# - Chunk đầu tiên: 15 ký tự → user nghe audio sớm
-# - Chunk tiếp theo: 80 ký tự → câu đủ dài, giảm số lần gọi TTS
-_FIRST_CLAUSE_LEN = 15
-_NORMAL_CLAUSE_LEN = 80
-
-
-def _parse_emotion(text: str) -> tuple[Emotion, str]:
-    """
-    Bóc tách emotion tag khỏi đầu chuỗi.
-    Trả về (emotion, cleaned_text).
-    """
-    match = _EMOTION_TAG_RE.match(text)
-    if match:
-        emotion_str = match.group(1).lower()
-        clean = text[match.end():].strip()
-        try:
-            return Emotion(emotion_str), clean
-        except ValueError:
-            pass
-    return Emotion.neutral, text.strip()
-
-
-def _should_flush(buffer: str, char: str, is_first_chunk: bool) -> bool:
-    """
-    Quyết định có nên flush buffer thành câu không.
-    is_first_chunk=True → ngưỡng thấp hơn để audio đầu xuất hiện sớm.
-    """
-    # Luôn flush khi gặp dấu kết thúc câu
-    if _SENTENCE_END_RE.search(char):
-        return True
-
-    # Flush theo dấu phụ (phẩy, xuống dòng, em-dash...)
-    if _CLAUSE_END_RE.search(char):
-        threshold = _FIRST_CLAUSE_LEN if is_first_chunk else _NORMAL_CLAUSE_LEN
-        if len(buffer) >= threshold:
-            return True
-
-    return False
 
 
 class Orchestrator:
@@ -78,7 +26,7 @@ class Orchestrator:
         self._interrupted = False
 
     def interrupt(self) -> None:
-        """Được gọi khi nhận WebSocket event 'interrupt' từ client."""
+        """Called when the gateway receives WebSocket event 'interrupt'."""
         self._interrupted = True
         logger.info("Orchestrator interrupted")
 
@@ -94,19 +42,15 @@ class Orchestrator:
         voice: str | None = None,
         router_enabled: bool = True,
         character_id: str | None = None,
+        turn_id: str | None = None,
     ) -> None:
-        """
-        Chạy pipeline LLM -> sentence-buffering -> queue.
-        Gửi None vào queue khi xong (sentinel) hoặc khi bị interrupt.
-        """
+        """Run LangGraph -> sentence buffering -> queue."""
         self.reset()
         buffer = ""
-        first_chunk = True  # chunk đầu tiên dùng ngưỡng thấp hơn
+        first_chunk = True
 
         try:
             from app.lc_graph import graph
-            from app.router import HeuristicRouter, build_routing_context
-            from app.config import settings
 
             resolved_character_id = character_id or settings.default_character_id
 
@@ -127,7 +71,6 @@ class Orchestrator:
 
             token_queue = asyncio.Queue()
 
-            # Start graph run in background
             graph_task = asyncio.create_task(
                 graph.ainvoke(
                     {
@@ -142,6 +85,7 @@ class Orchestrator:
                         "run_name": "interactive_chatbot_turn",
                         "tags": ["websocket", "langgraph", "streaming"],
                         "metadata": {
+                            "turn_id": turn_id,
                             "session_id": session_id,
                             "user_id": user_id,
                             "character_id": resolved_character_id,
@@ -163,41 +107,42 @@ class Orchestrator:
 
                 buffer += token
 
-                if buffer and _should_flush(buffer, buffer[-1], is_first_chunk=first_chunk):
-                    chunk = _flush_buffer(buffer, voice)
+                if buffer and should_flush(buffer, buffer[-1], is_first_chunk=first_chunk):
+                    chunk = flush_buffer(buffer, voice)
                     if chunk:
                         logger.debug(
-                            "Flushed chunk [first=%s]: emotion=%s len=%d text=%r voice=%s",
-                            first_chunk, chunk.emotion, len(chunk.text), chunk.text[:60], chunk.voice
+                            "Flushed chunk [first=%s turn=%s]: emotion=%s len=%d text=%r voice=%s",
+                            first_chunk,
+                            turn_id,
+                            chunk.emotion,
+                            len(chunk.text),
+                            chunk.text[:60],
+                            chunk.voice,
                         )
                         await sentence_queue.put(chunk)
                         first_chunk = False
                     buffer = ""
 
-            # Flush phần còn lại (câu cuối có thể không có dấu câu)
             if buffer.strip() and not self._interrupted:
-                chunk = _flush_buffer(buffer, voice)
+                chunk = flush_buffer(buffer, voice)
                 if chunk:
-                    logger.debug("Final flush: emotion=%s text=%r voice=%s", chunk.emotion, chunk.text[:60], chunk.voice)
+                    logger.debug(
+                        "Final flush [turn=%s]: emotion=%s text=%r voice=%s",
+                        turn_id,
+                        chunk.emotion,
+                        chunk.text[:60],
+                        chunk.voice,
+                    )
                     await sentence_queue.put(chunk)
 
             if not self._interrupted:
                 await graph_task
 
         except Exception as exc:
-            logger.error("Orchestrator error: %s", exc)
+            logger.error("Orchestrator error [turn=%s]: %s", turn_id, exc)
             raise
         finally:
             await sentence_queue.put(None)
-
-
-def _flush_buffer(raw: str, voice: str | None = None) -> SentenceChunk | None:
-    """Tạo SentenceChunk từ raw buffer, bóc tách emotion tag."""
-    emotion, text = _parse_emotion(raw)
-    text = text.strip()
-    if not text:
-        return None
-    return SentenceChunk(text=text, emotion=emotion, voice=voice)
 
 
 async def sentence_stream(
@@ -206,7 +151,12 @@ async def sentence_stream(
 ) -> AsyncGenerator[SentenceChunk, None]:
     orchestrator = Orchestrator()
     producer_task = asyncio.create_task(
-        orchestrator.run(user_text, sentence_queue)
+        orchestrator.run(
+            user_text,
+            "default_session",
+            "default_user",
+            sentence_queue,
+        )
     )
     while True:
         item = await sentence_queue.get()

@@ -1,25 +1,19 @@
-"""
-FastAPI Orchestrator — Stage 1 + Stage 2: AI Core & TTS Streaming
-WebSocket /ws/chat: nhận text → LLM stream → sentence buffer → TTS → AudioChunkPayload
-"""
+"""FastAPI app setup and route registration."""
 
 import asyncio
-import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.character_registry import character_registry
 from app.config import settings
+from app.gateway.websocket import websocket_chat as gateway_websocket_chat
 from app.llm_handler import get_llm_handler
-from app.models import AudioChunkPayload, DonePayload, ErrorPayload, VisemeEntry
-from app.orchestrator import Orchestrator
-from app.rhubarb_handler import get_visemes
 from app.stt_handler import BaseSTTHandler, get_stt_handler, validate_audio_upload
-from app.tts_handler import BaseTTSHandler, audio_to_base64, get_tts_handler
+from app.tts_handler import BaseTTSHandler, get_tts_handler
 from app.warmup import start_background_warmup, warmup_state
 
 logging.basicConfig(
@@ -176,208 +170,4 @@ async def transcribe_audio(
 
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
-    await websocket.accept()
-    client = websocket.client
-    logger.info("WebSocket connected: %s", client)
-
-    tts: BaseTTSHandler = websocket.app.state.tts_handler
-    current_provider: str = settings.llm_provider
-    orchestrator = Orchestrator(get_llm_handler(current_provider))
-    current_task: asyncio.Task | None = None
-
-    # Thông báo provider hiện tại cho client ngay khi connect
-    await websocket.send_text(json.dumps({
-        "type": "connected",
-        "provider": current_provider,
-        "warmup": warmup_state.to_dict(),
-    }))
-
-    async def _run_pipeline(
-        user_text: str,
-        session_id: str,
-        user_id: str,
-        tts_enabled: bool = True,
-        voice: str | None = None,
-        router_enabled: bool = True,
-        character_id: str | None = None,
-    ) -> None:
-        """
-        3-stage pipelined pipeline để giảm latency:
-
-          Stage 1 (producer):     Orchestrator → sentence_queue
-          Stage 2 (tts_producer): sentence_queue → TTS.synthesize() [eager, non-blocking] → tts_queue
-          Stage 3 (consumer):     tts_queue → Rhubarb → WebSocket send
-
-        Khi tts_enabled=False: bỏ qua TTS + Rhubarb, gửi text-only AudioChunkPayload ngay.
-        """
-        sentence_queue: asyncio.Queue = asyncio.Queue()
-        tts_queue: asyncio.Queue = asyncio.Queue()
-
-        # Stage 1: LLM → sentence_queue
-        producer = asyncio.create_task(
-            orchestrator.run(
-                user_text, session_id, user_id, sentence_queue, voice, router_enabled, character_id
-            )
-        )
-
-        async def _tts_producer() -> None:
-            while True:
-                chunk = await sentence_queue.get()
-                if chunk is None:
-                    await tts_queue.put(None)
-                    return
-                if tts_enabled:
-                    tts_task = asyncio.create_task(_synthesize_safe(chunk))
-                else:
-                    # Text-only: wrap empty bytes trong completed task
-                    tts_task = asyncio.create_task(_empty_audio())
-                await tts_queue.put((chunk, tts_task))
-
-        async def _synthesize_safe(chunk) -> bytes:
-            try:
-                return await tts.synthesize(chunk)
-            except Exception as exc:
-                logger.error("TTS error for chunk %r: %s", chunk.text[:40], exc)
-                return b""
-
-        async def _empty_audio() -> bytes:
-            return b""
-
-        tts_producer = asyncio.create_task(_tts_producer())
-
-        try:
-            # Stage 3: await TTS result, rồi Rhubarb → send
-            while True:
-                item = await tts_queue.get()
-                if item is None:
-                    break
-
-                chunk, tts_task = item
-                audio_bytes = await tts_task
-
-                if tts_enabled and audio_bytes:
-                    viseme_dicts = await get_visemes(audio_bytes)
-                    visemes = [VisemeEntry(**v) for v in viseme_dicts]
-                    duration_ms = int(visemes[-1].end * 1000) if visemes else 0
-                    audio_b64 = audio_to_base64(audio_bytes)
-                else:
-                    visemes = []
-                    duration_ms = 0
-                    audio_b64 = ""
-
-                payload = AudioChunkPayload(
-                    text=chunk.text,
-                    emotion=chunk.emotion,
-                    audio_base64=audio_b64,
-                    duration_ms=duration_ms,
-                    visemes=visemes,
-                )
-                await websocket.send_text(payload.model_dump_json())
-
-            await websocket.send_text(DonePayload().model_dump_json())
-
-        except asyncio.CancelledError:
-            logger.info("Pipeline cancelled for %s", client)
-            raise
-        except Exception as exc:
-            logger.error("Pipeline error: %s", exc)
-            try:
-                await websocket.send_text(ErrorPayload(message=str(exc)).model_dump_json())
-            except Exception:
-                pass
-        finally:
-            tts_producer.cancel()
-            try:
-                await tts_producer
-            except (asyncio.CancelledError, Exception):
-                pass
-            if not producer.done():
-                producer.cancel()
-            try:
-                await producer
-            except (asyncio.CancelledError, Exception):
-                pass
-
-    async def _cancel_current() -> None:
-        nonlocal current_task
-        if current_task and not current_task.done():
-            orchestrator.interrupt()
-            current_task.cancel()
-            try:
-                await current_task
-            except (asyncio.CancelledError, Exception):
-                pass
-        orchestrator.reset()
-
-    try:
-        while True:
-            raw = await websocket.receive_text()
-
-            try:
-                data = json.loads(raw)
-            except json.JSONDecodeError:
-                await websocket.send_text(
-                    ErrorPayload(message="Invalid JSON").model_dump_json()
-                )
-                continue
-
-            msg_type = data.get("type", "")
-
-            if msg_type == "interrupt":
-                logger.info("Interrupt signal from %s", client)
-                await _cancel_current()
-                await websocket.send_text(json.dumps({"type": "clear_queue"}))
-
-            elif msg_type == "set_model":
-                provider = data.get("provider", "ollama").lower()
-                if provider not in ("ollama", "deepseek", "qwen"):
-                    await websocket.send_text(
-                        ErrorPayload(message=f"Unknown provider: {provider}").model_dump_json()
-                    )
-                    continue
-                await _cancel_current()
-                current_provider = provider
-                orchestrator = Orchestrator(get_llm_handler(current_provider))
-                logger.info("LLM provider switched to '%s' for %s", current_provider, client)
-                await websocket.send_text(json.dumps({"type": "model_changed", "provider": current_provider}))
-
-            elif msg_type == "user_message":
-                user_text: str = data.get("text", "").strip()
-                user_id: str = data.get("user_id", "default_user")
-                session_id: str = data.get("session_id", "default_session")
-                tts_enabled: bool = bool(data.get("tts_enabled", True))
-                # router_enabled: frontend toggle overrides server default per-request
-                router_enabled: bool = bool(data.get("router_enabled", settings.router_enabled))
-                character_id: str = data.get("character_id", settings.default_character_id)
-                voice: str | None = data.get("voice", None)
-                if not voice:
-                    # No explicit voice from client — use the selected character's default voice.
-                    character = character_registry.get(character_id)
-                    if character:
-                        voice = character.get("voice")
-                if not user_text:
-                    await websocket.send_text(
-                        ErrorPayload(message="Empty message").model_dump_json()
-                    )
-                    continue
-
-                await _cancel_current()
-                logger.info(
-                    "New message from %s [session=%s, character=%s, tts=%s, router=%s, voice=%s]: %r",
-                    client, session_id, character_id, tts_enabled, router_enabled, voice, user_text[:80],
-                )
-                current_task = asyncio.create_task(
-                    _run_pipeline(user_text, session_id, user_id, tts_enabled, voice, router_enabled, character_id)
-                )
-
-            else:
-                await websocket.send_text(
-                    ErrorPayload(message=f"Unknown message type: {msg_type}").model_dump_json()
-                )
-
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected: %s", client)
-        await _cancel_current()
-    except Exception as exc:
-        logger.error("Unexpected WebSocket error: %s", exc)
-        await _cancel_current()
+    await gateway_websocket_chat(websocket)

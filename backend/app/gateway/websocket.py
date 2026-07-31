@@ -1,0 +1,120 @@
+"""WebSocket gateway for the existing /ws/chat contract."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+from app.config import settings
+from app.gateway.schemas import ChatRequest, parse_client_message
+from app.llm_handler import get_llm_handler
+from app.models import ErrorPayload
+from app.orchestrator import Orchestrator, TurnOrchestrator
+from app.tts_handler import BaseTTSHandler
+from app.warmup import warmup_state
+
+logger = logging.getLogger(__name__)
+
+
+class WebSocketSink:
+    def __init__(self, websocket: WebSocket) -> None:
+        self._websocket = websocket
+
+    async def send_text(self, text: str) -> None:
+        await self._websocket.send_text(text)
+
+
+def _build_turn_orchestrator(tts: BaseTTSHandler, provider: str) -> TurnOrchestrator:
+    return TurnOrchestrator(
+        tts_handler=tts,
+        sentence_producer=Orchestrator(get_llm_handler(provider)),
+    )
+
+
+async def websocket_chat(websocket: WebSocket) -> None:
+    await websocket.accept()
+    client = websocket.client
+    logger.info("WebSocket connected: %s", client)
+
+    tts: BaseTTSHandler = websocket.app.state.tts_handler
+    current_provider = settings.llm_provider
+    turn_orchestrator = _build_turn_orchestrator(tts, current_provider)
+    current_task: asyncio.Task | None = None
+    sink = WebSocketSink(websocket)
+
+    await websocket.send_text(json.dumps({
+        "type": "connected",
+        "provider": current_provider,
+        "warmup": warmup_state.to_dict(),
+    }))
+
+    async def _cancel_current() -> None:
+        nonlocal current_task
+        if current_task and not current_task.done():
+            turn_orchestrator.interrupt()
+            current_task.cancel()
+            try:
+                await current_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        turn_orchestrator.reset()
+
+    async def _run_request(request: ChatRequest) -> None:
+        logger.info(
+            "New message from %s [turn=%s, session=%s, user=%s, character=%s, tts=%s, router=%s, voice=%s]: %r",
+            client,
+            request.turn_id,
+            request.session_id,
+            request.user_id,
+            request.character_id,
+            request.tts_enabled,
+            request.router_enabled,
+            request.voice,
+            request.text[:80],
+        )
+        await turn_orchestrator.run_turn(request, sink)
+
+    try:
+        while True:
+            raw = await websocket.receive_text()
+
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                await websocket.send_text(ErrorPayload(message="Invalid JSON").model_dump_json())
+                continue
+
+            message = parse_client_message(data)
+
+            if message.error:
+                await websocket.send_text(ErrorPayload(message=message.error).model_dump_json())
+                continue
+
+            if message.type == "interrupt":
+                logger.info("Interrupt signal from %s", client)
+                await _cancel_current()
+                await websocket.send_text(json.dumps({"type": "clear_queue"}))
+
+            elif message.type == "set_model":
+                await _cancel_current()
+                current_provider = message.provider or settings.llm_provider
+                turn_orchestrator = _build_turn_orchestrator(tts, current_provider)
+                logger.info("LLM provider switched to '%s' for %s", current_provider, client)
+                await websocket.send_text(json.dumps({
+                    "type": "model_changed",
+                    "provider": current_provider,
+                }))
+
+            elif message.type == "user_message" and message.request:
+                await _cancel_current()
+                current_task = asyncio.create_task(_run_request(message.request))
+
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected: %s", client)
+        await _cancel_current()
+    except Exception as exc:
+        logger.error("Unexpected WebSocket error: %s", exc)
+        await _cancel_current()
