@@ -3,8 +3,15 @@ venv/
 .venv/
 env/
 
-# Claude Code local state (worktrees, session data) — machine-local, not project source
+# Claude Code local state (worktrees, branch worktrees, session data) — machine-local, not project source
 .claude/
+.claude/**
+.claude.json
+.claude.local.json
+claude/
+
+# Local editor state
+.vscode/settings.json
 
 # Environment/secrets
 .env
