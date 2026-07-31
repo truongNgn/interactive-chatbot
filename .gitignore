@@ -41,6 +41,7 @@ node_modules/
 __pycache__/
 *.py[cod]
 backend/venv_vllm/
+backend/.uv-cache/
 
 # Generated data — vector DBs & lore parent store (personal/runtime data, not source)
 backend/chroma_data/

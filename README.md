@@ -77,6 +77,24 @@ npm run dev
 
 Requires [Ollama](https://ollama.com) running locally (or a configured vLLM/DeepSeek endpoint) for the LLM + embedding model.
 
+### Baseline smoke checks
+
+Stage 1 keeps the backend importable even when optional character brain/STT modules are unavailable. Run:
+
+```bash
+cd backend
+python -c "from app.main import app; print(app.title)"
+python scripts/smoke_baseline.py
+```
+
+`/health` may report `status=degraded` if the configured LLM provider is not running. To smoke a live text-only WebSocket turn when Ollama/vLLM/DeepSeek is available:
+
+```powershell
+cd backend
+$env:SMOKE_WS_TURN="1"
+python scripts/smoke_baseline.py
+```
+
 ### Ingesting a character brain document
 
 ```bash
