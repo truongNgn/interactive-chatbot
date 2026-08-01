@@ -5,11 +5,10 @@ from typing import TypedDict
 
 from langgraph.graph import StateGraph, START, END
 
-from app.memory_store import hybrid_retrieve
-from app.memory_middleware import schedule_persist
-from app.lore_store import retrieve_character_context
+from app.agents.base import AgentContext
 from app.persona import build_system_prompt
 from app.lc_chain import build_chain
+from app.tools import ToolInput, default_tool_registry
 
 
 class ChatState(TypedDict):
@@ -24,16 +23,41 @@ class ChatState(TypedDict):
     response_text: str
     emotion: str
     token_queue: asyncio.Queue
+    turn_id: str | None
+    agent_id: str | None
+
+
+def _agent_context(state: ChatState) -> AgentContext:
+    return AgentContext(
+        user_id=state["user_id"],
+        session_id=state["session_id"],
+        character_id=state["character_id"],
+        agent_id=state.get("agent_id"),
+        selected_model=state.get("selected_model"),
+        turn_id=state.get("turn_id"),
+    )
 
 
 async def retrieve_memories_node(state: ChatState) -> dict:
-    context = await hybrid_retrieve(state["user_id"], state["character_id"], state["user_text"])
-    return {"memory_context": context}
+    result = await default_tool_registry.run(
+        ToolInput(
+            name="retrieve_memory",
+            args={"query": state["user_text"]},
+            context=_agent_context(state),
+        )
+    )
+    return {"memory_context": result.content if result.ok else ""}
 
 
 async def retrieve_character_context_node(state: ChatState) -> dict:
-    context = await retrieve_character_context(state["character_id"], state["user_text"])
-    return {"character_context": context}
+    result = await default_tool_registry.run(
+        ToolInput(
+            name="retrieve_character_context",
+            args={"query": state["user_text"]},
+            context=_agent_context(state),
+        )
+    )
+    return {"character_context": result.content if result.ok else ""}
 
 
 async def build_prompt_node(state: ChatState) -> dict:
@@ -66,13 +90,16 @@ async def generate_node(state: ChatState) -> dict:
 
 
 async def store_memories_node(state: ChatState) -> dict:
-    schedule_persist(
-        state["user_id"],
-        state["session_id"],
-        state["character_id"],
-        state["user_text"],
-        state["response_text"],
-        state["emotion"],
+    await default_tool_registry.run(
+        ToolInput(
+            name="persist_memory",
+            args={
+                "user_text": state["user_text"],
+                "assistant_text": state["response_text"],
+                "emotion": state["emotion"],
+            },
+            context=_agent_context(state),
+        )
     )
     return {}
 

@@ -11,6 +11,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 
+from app.agents import AgentContext, default_agent_registry
 from app.config import settings
 from app.llm_handler import BaseLLMHandler, get_llm_handler
 from app.models import SentenceChunk
@@ -48,10 +49,9 @@ class Orchestrator:
         self.reset()
         buffer = ""
         first_chunk = True
+        agent_id = ""
 
         try:
-            from app.lc_graph import graph
-
             resolved_character_id = character_id or settings.default_character_id
 
             selected_model: str | None = None
@@ -69,40 +69,29 @@ class Orchestrator:
                 decision = router.select_model(build_routing_context(user_text))
                 selected_model = decision.model
 
-            token_queue = asyncio.Queue()
-
-            graph_task = asyncio.create_task(
-                graph.ainvoke(
-                    {
-                        "user_id": user_id,
-                        "session_id": session_id,
-                        "character_id": resolved_character_id,
-                        "user_text": user_text,
-                        "selected_model": selected_model,
-                        "token_queue": token_queue,
-                    },
-                    config={
-                        "run_name": "interactive_chatbot_turn",
-                        "tags": ["websocket", "langgraph", "streaming"],
-                        "metadata": {
-                            "turn_id": turn_id,
-                            "session_id": session_id,
-                            "user_id": user_id,
-                            "character_id": resolved_character_id,
-                            "selected_model": selected_model,
-                            "router_enabled": router_enabled,
-                        },
-                    },
-                )
+            agent = default_agent_registry.select(resolved_character_id)
+            agent_id = agent.id
+            agent_context = AgentContext(
+                user_id=user_id,
+                session_id=session_id,
+                character_id=resolved_character_id,
+                agent_id=agent_id,
+                selected_model=selected_model,
+                turn_id=turn_id,
+            )
+            logger.info(
+                "Agent selected [turn=%s, session=%s, user=%s, character=%s, agent=%s, model=%s]",
+                turn_id,
+                session_id,
+                user_id,
+                resolved_character_id,
+                agent_id,
+                selected_model,
             )
 
-            while True:
+            async for token in agent.stream(agent_context, user_text):
                 if self._interrupted:
                     logger.info("Stream interrupted, stopping token consumption")
-                    break
-
-                token = await token_queue.get()
-                if token is None:
                     break
 
                 buffer += token
@@ -135,11 +124,8 @@ class Orchestrator:
                     )
                     await sentence_queue.put(chunk)
 
-            if not self._interrupted:
-                await graph_task
-
         except Exception as exc:
-            logger.error("Orchestrator error [turn=%s]: %s", turn_id, exc)
+            logger.error("Orchestrator error [turn=%s agent=%s]: %s", turn_id, agent_id, exc)
             raise
         finally:
             await sentence_queue.put(None)

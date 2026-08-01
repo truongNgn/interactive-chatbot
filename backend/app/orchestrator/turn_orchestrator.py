@@ -11,9 +11,10 @@ import logging
 from typing import Protocol
 
 from app.gateway.schemas import ChatRequest
+from app.agents.base import AgentContext
 from app.models import AudioChunkPayload, DonePayload, ErrorPayload, SentenceChunk, VisemeEntry
 from app.orchestrator.legacy import Orchestrator
-from app.rhubarb_handler import get_visemes
+from app.tools import ToolInput, default_tool_registry
 from app.tts_handler import BaseTTSHandler, audio_to_base64
 
 logger = logging.getLogger(__name__)
@@ -110,16 +111,23 @@ class TurnOrchestrator:
             await tts_queue.put((chunk, tts_task))
 
     async def _synthesize_safe(self, request: ChatRequest, chunk: SentenceChunk) -> bytes:
-        try:
-            return await self._tts.synthesize(chunk)
-        except Exception as exc:
+        result = await default_tool_registry.run(
+            ToolInput(
+                name="synthesize_speech",
+                args={"chunk": chunk, "tts_handler": self._tts},
+                context=_request_context(request),
+            )
+        )
+        if result.ok and isinstance(result.content, bytes):
+            return result.content
+        if result.error:
             logger.error(
                 "TTS error [turn=%s] for chunk %r: %s",
                 request.turn_id,
                 chunk.text[:40],
-                exc,
+                result.error,
             )
-            return b""
+        return b""
 
     async def _build_audio_payload(
         self,
@@ -128,7 +136,14 @@ class TurnOrchestrator:
         audio_bytes: bytes,
     ) -> AudioChunkPayload:
         if request.tts_enabled and audio_bytes:
-            viseme_dicts = await get_visemes(audio_bytes)
+            result = await default_tool_registry.run(
+                ToolInput(
+                    name="generate_visemes",
+                    args={"audio_bytes": audio_bytes},
+                    context=_request_context(request),
+                )
+            )
+            viseme_dicts = result.content if result.ok and isinstance(result.content, list) else []
             visemes = [VisemeEntry(**v) for v in viseme_dicts]
             duration_ms = int(visemes[-1].end * 1000) if visemes else 0
             audio_b64 = audio_to_base64(audio_bytes)
@@ -148,3 +163,12 @@ class TurnOrchestrator:
 
 async def _empty_audio() -> bytes:
     return b""
+
+
+def _request_context(request: ChatRequest) -> AgentContext:
+    return AgentContext(
+        user_id=request.user_id,
+        session_id=request.session_id,
+        character_id=request.character_id,
+        turn_id=request.turn_id,
+    )
