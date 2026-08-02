@@ -6,7 +6,7 @@ Mục tiêu: nâng cấp kiến trúc hiện tại từ **Interactive 3D RAG Cha
 Gateway -> Orchestrator -> Agents -> Tools -> Guardrails -> Feedback
 ```
 
-Liên quan: [BRAIN.md](../BRAIN.md), [WORKFLOW.md](../WORKFLOW.md), [README.md](../README.md), [main.py](../backend/app/main.py), [orchestrator.py](../backend/app/orchestrator.py), [lc_graph.py](../backend/app/lc_graph.py), [lc_chain.py](../backend/app/lc_chain.py), [memory_store.py](../backend/app/memory_store.py), [memory_middleware.py](../backend/app/memory_middleware.py).
+Liên quan: [BRAIN.md](../BRAIN.md), [WORKFLOW.md](architecture/WORKFLOW.md), [README.md](../README.md), [main.py](../backend/app/main.py), [orchestrator.py](../backend/app/orchestrator.py), [lc_graph.py](../backend/app/lc_graph.py), [lc_chain.py](../backend/app/lc_chain.py), [memory_store.py](../backend/app/memory_store.py), [memory_middleware.py](../backend/app/memory_middleware.py).
 
 ---
 
@@ -658,7 +658,7 @@ Definition of Done:
 **JD angle:** communication, applied mindset, business impact.
 
 Việc cần làm:
-- Cập nhật [BRAIN.md](../BRAIN.md), [WORKFLOW.md](../WORKFLOW.md), [README.md](../README.md).
+- Cập nhật [BRAIN.md](../BRAIN.md), [WORKFLOW.md](architecture/WORKFLOW.md), [README.md](../README.md).
 - Thêm architecture diagram:
 
 ```text

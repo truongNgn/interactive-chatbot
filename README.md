@@ -25,7 +25,7 @@ Most chatbot demos call an LLM API and print the response. This one is an attemp
 - **Two-tier streaming** — LLM token stream is re-buffered into sentence-level chunks (adaptive threshold: short first chunk for fast time-to-first-audio, longer later chunks for fewer TTS calls) before being piped through TTS, Rhubarb lip-sync, and out to the avatar over WebSocket.
 - **Pluggable providers** — LLM (Ollama / vLLM / DeepSeek), TTS (ElevenLabs / Coqui XTTS-v2 / text-only fallback), STT (faster-whisper), with a heuristic router that picks a small/large model per query complexity.
 
-See [docs/CHARACTER_BRAIN_IMPLEMENTATION_PLAN.md](docs/CHARACTER_BRAIN_IMPLEMENTATION_PLAN.md) for the full design writeup behind the multi-character memory/chunking system, including the trade-offs considered and rejected.
+See [docs/CHARACTER_BRAIN_IMPLEMENTATION_PLAN.md](docs/CHARACTER_BRAIN_IMPLEMENTATION_PLAN.md) for the full design writeup behind the multi-character memory/chunking system, including the trade-offs considered and rejected. The full documentation map is in [docs/README.md](docs/README.md).
 
 ## Architecture
 
