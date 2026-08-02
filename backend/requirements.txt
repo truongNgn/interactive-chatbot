@@ -29,3 +29,6 @@ langchain-openai>=0.2.0
 langchain-chroma>=0.1.0
 langgraph>=0.2.0
 langsmith>=0.1.0
+
+# Stage 6 local regression tests
+pytest>=8.3.0

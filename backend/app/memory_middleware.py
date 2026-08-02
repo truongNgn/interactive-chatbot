@@ -12,7 +12,7 @@ _FACT_PATTERNS: list[tuple[str, list[str]]] = [
     ("name", [
         r"my name is ([A-Za-z][A-Za-z\s]{1,30}?)(?:\s*[,\.!?]|$)",
         r"call me ([A-Za-z][A-Za-z\s]{1,20}?)(?:\s*[,\.!?]|$)",
-        r"i(?:'m| am) ([A-Za-z][A-Za-z\s]{1,30}?),\s*your",  # "I am Truong, your best friend"
+        r"i(?:'m| am) ([A-Za-z][A-Za-z\s]{1,30}?),\s*your",  # "I am Johnny, your best friend"
         r"name(?:'s| is) ([A-Za-z][A-Za-z\s]{1,20}?)(?:\s*[,\.!?]|$)",
     ]),
     ("job", [

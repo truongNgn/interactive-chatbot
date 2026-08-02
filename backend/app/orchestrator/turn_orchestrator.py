@@ -47,6 +47,8 @@ class TurnOrchestrator:
             "tts_enabled": request.tts_enabled,
             "router_enabled": request.router_enabled,
         })
+        first_response_ms: int | None = None
+        first_audio_ms: int | None = None
         input_decision = await self._guardrails.check_input(request)
         await self._record_event(request, "input_guardrail_checked", input_decision.to_dict())
         if not input_decision.allowed:
@@ -88,13 +90,31 @@ class TurnOrchestrator:
                 if output_decision.redacted_text is not None and output_decision.redacted_text != chunk.text:
                     chunk = chunk.model_copy(update={"text": output_decision.redacted_text})
                 payload = await self._build_audio_payload(request, chunk, audio_bytes)
+                if first_response_ms is None:
+                    first_response_ms = int((time.perf_counter() - started_at) * 1000)
+                    await self._record_event(
+                        request,
+                        "first_response_chunk",
+                        {"latency_ms": first_response_ms},
+                    )
+                if first_audio_ms is None and request.tts_enabled and audio_bytes:
+                    first_audio_ms = int((time.perf_counter() - started_at) * 1000)
+                    await self._record_event(
+                        request,
+                        "first_audio",
+                        {"latency_ms": first_audio_ms},
+                    )
                 await sink.send_text(payload.model_dump_json())
 
             await sink.send_text(DonePayload().model_dump_json())
             await self._record_event(
                 request,
                 "turn_completed",
-                {"latency_ms": int((time.perf_counter() - started_at) * 1000)},
+                {
+                    "latency_ms": int((time.perf_counter() - started_at) * 1000),
+                    "time_to_first_response_ms": first_response_ms,
+                    "time_to_first_audio_ms": first_audio_ms,
+                },
             )
 
         except asyncio.CancelledError:

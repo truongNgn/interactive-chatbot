@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncGenerator
 
 from app.agents import AgentContext, default_agent_registry
 from app.config import settings
+from app.feedback import FeedbackEvent, default_feedback_store
 from app.llm_handler import BaseLLMHandler, get_llm_handler
 from app.models import SentenceChunk
 from app.orchestrator.routing import HeuristicRouter, build_routing_context
@@ -50,6 +52,8 @@ class Orchestrator:
         buffer = ""
         first_chunk = True
         agent_id = ""
+        started_at = time.perf_counter()
+        first_token_seen = False
 
         try:
             resolved_character_id = character_id or settings.default_character_id
@@ -88,11 +92,52 @@ class Orchestrator:
                 agent_id,
                 selected_model,
             )
+            if turn_id:
+                await default_feedback_store.record_event(
+                    FeedbackEvent(
+                        event_type="agent_selected",
+                        user_id=user_id,
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        payload={
+                            "agent_id": agent_id,
+                            "selected_model": selected_model,
+                            "router_enabled": router_enabled,
+                            "character_id": resolved_character_id,
+                        },
+                    )
+                )
 
             async for token in agent.stream(agent_context, user_text):
                 if self._interrupted:
                     logger.info("Stream interrupted, stopping token consumption")
                     break
+                if not first_token_seen:
+                    first_token_seen = True
+                    latency_ms = int((time.perf_counter() - started_at) * 1000)
+                    logger.info(
+                        "First token [turn=%s, session=%s, user=%s, agent=%s, selected_model=%s, latency_ms=%d]",
+                        turn_id,
+                        session_id,
+                        user_id,
+                        agent_id,
+                        selected_model,
+                        latency_ms,
+                    )
+                    if turn_id:
+                        await default_feedback_store.record_event(
+                            FeedbackEvent(
+                                event_type="first_token",
+                                user_id=user_id,
+                                session_id=session_id,
+                                turn_id=turn_id,
+                                payload={
+                                    "latency_ms": latency_ms,
+                                    "agent_id": agent_id,
+                                    "selected_model": selected_model,
+                                },
+                            )
+                        )
 
                 buffer += token
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from app.feedback import FeedbackEvent, default_feedback_store
 from app.guardrails.base import GuardrailPipeline
@@ -24,38 +25,59 @@ class ToolRegistry:
         return self._tools.get(name)
 
     async def run(self, tool_input: ToolInput) -> ToolResult:
+        started_at = time.perf_counter()
         decision = await self._guardrails.check_tool_call(tool_input)
         if not decision.allowed:
             error = decision.reason or f"Tool call blocked: {tool_input.name}"
             logger.warning(error)
-            await self._record_tool_event("tool_failed", tool_input, {"error": error, "blocked": True})
+            await self._record_tool_event(
+                "tool_failed",
+                tool_input,
+                {"error": error, "blocked": True, "latency_ms": _elapsed_ms(started_at)},
+            )
             return ToolResult(ok=False, error=error)
 
         tool = self.get(tool_input.name)
         if not tool:
             error = f"Unknown tool: {tool_input.name}"
             logger.warning(error)
-            await self._record_tool_event("tool_failed", tool_input, {"error": error})
+            await self._record_tool_event(
+                "tool_failed",
+                tool_input,
+                {"error": error, "latency_ms": _elapsed_ms(started_at)},
+            )
             return ToolResult(ok=False, error=error)
 
         try:
             result = await tool.run(tool_input)
+            latency_ms = _elapsed_ms(started_at)
             await self._record_tool_event(
                 "tool_called" if result.ok else "tool_failed",
                 tool_input,
-                {"ok": result.ok, "error": result.error, "metadata": result.metadata},
+                {
+                    "ok": result.ok,
+                    "error": result.error,
+                    "latency_ms": latency_ms,
+                    "metadata": result.metadata,
+                },
             )
             logger.debug(
-                "Tool called: %s ok=%s turn=%s agent_context=%s",
+                "Tool called: %s ok=%s latency_ms=%d turn=%s agent_context=%s",
                 tool_input.name,
                 result.ok,
+                latency_ms,
                 tool_input.context.turn_id,
                 tool_input.context.character_id,
             )
             return result
         except Exception as exc:
+            latency_ms = _elapsed_ms(started_at)
             logger.warning("Tool failed: %s turn=%s error=%s", tool_input.name, tool_input.context.turn_id, exc)
-            await self._record_tool_event("tool_failed", tool_input, {"error": str(exc)})
+            await self._record_tool_event(
+                "tool_failed",
+                tool_input,
+                {"error": str(exc), "latency_ms": latency_ms},
+            )
             return ToolResult(ok=False, error=str(exc))
 
     def list_names(self) -> list[str]:
@@ -78,3 +100,7 @@ class ToolRegistry:
                 },
             )
         )
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return int((time.perf_counter() - started_at) * 1000)

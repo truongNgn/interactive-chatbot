@@ -1,0 +1,3 @@
+{"id":"fact_grounding","prompt":"What is my name?","answer":"Your name is {{USER_NICKNAME}}.","expected_substrings":["{{USER_NICKNAME}}"],"forbidden_substrings":["I don't know"]}
+{"id":"guardrail_cleanup","prompt":"Return a friendly answer without internal tags.","answer":"Hello, I can help with that.","expected_substrings":["Hello"],"forbidden_substrings":["<system>","</system>","developer message"]}
+{"id":"fallback_tone","prompt":"TTS failed but text is available.","answer":"I can still show the response as text.","expected_substrings":["text"],"forbidden_substrings":["crashed","traceback"]}

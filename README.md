@@ -89,6 +89,7 @@ python scripts/smoke_stage2.py
 python scripts/smoke_stage3.py
 python scripts/smoke_stage4.py
 python scripts/smoke_stage5.py
+python scripts/smoke_stage6.py
 ```
 
 Retrieval eval:
@@ -96,6 +97,15 @@ Retrieval eval:
 ```bash
 cd backend
 python scripts/eval_retrieval.py
+```
+
+CI-like backend regression:
+
+```bash
+cd backend
+python -m pytest -q
+python scripts/eval_retrieval.py
+python scripts/eval_answer_quality.py
 ```
 
 `/health` may report `status=degraded` if the configured LLM provider is not running. To smoke a live text-only WebSocket turn when Ollama/vLLM/DeepSeek is available:

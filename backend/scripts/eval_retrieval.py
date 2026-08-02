@@ -27,6 +27,8 @@ from app.bm25_store import BM25SearchResult
 from app.memory_store import _rrf_fusion, hybrid_retrieve_with_metrics
 
 CASES_PATH = BACKEND_ROOT / "evals" / "retrieval_cases.jsonl"
+USER_NICKNAME = os.getenv("EVAL_USER_NICKNAME", "Johnny")
+USER_NICKNAME_PLACEHOLDER = "{{USER_NICKNAME}}"
 
 
 @dataclass
@@ -43,8 +45,18 @@ def _load_cases() -> list[dict[str, Any]]:
     with CASES_PATH.open("r", encoding="utf-8") as f:
         for line in f:
             if line.strip():
-                cases.append(json.loads(line))
+                cases.append(_resolve_placeholders(json.loads(line)))
     return cases
+
+
+def _resolve_placeholders(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace(USER_NICKNAME_PLACEHOLDER, USER_NICKNAME)
+    if isinstance(value, list):
+        return [_resolve_placeholders(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _resolve_placeholders(item) for key, item in value.items()}
+    return value
 
 
 def _rank_of(context_lines: list[str], expected_substrings: list[str]) -> int | None:
