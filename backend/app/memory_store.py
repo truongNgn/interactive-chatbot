@@ -4,6 +4,8 @@ import asyncio
 import logging
 import re
 import time
+from dataclasses import dataclass, field
+from typing import Any
 
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
@@ -13,6 +15,46 @@ from app.config import settings
 from app.bm25_store import bm25_store, BM25SearchResult
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class HybridRetrievalMetrics:
+    query_length: int
+    top_k: int
+    route: str = "hybrid"
+    facts_count: int = 0
+    dense_count: int = 0
+    sparse_count: int = 0
+    fused_count: int = 0
+    bm25_store_size: int = 0
+    facts_latency_ms: int = 0
+    dense_latency_ms: int = 0
+    sparse_latency_ms: int = 0
+    total_latency_ms: int = 0
+    skipped_turn_retrieval: bool = False
+    errors: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "query_length": self.query_length,
+            "top_k": self.top_k,
+            "route": self.route,
+            "facts_count": self.facts_count,
+            "dense_count": self.dense_count,
+            "sparse_count": self.sparse_count,
+            "fused_count": self.fused_count,
+            "bm25_store_size": self.bm25_store_size,
+            "facts_latency_ms": self.facts_latency_ms,
+            "dense_latency_ms": self.dense_latency_ms,
+            "sparse_latency_ms": self.sparse_latency_ms,
+            "total_latency_ms": self.total_latency_ms,
+            "skipped_turn_retrieval": self.skipped_turn_retrieval,
+            "errors": self.errors,
+        }
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return int((time.perf_counter() - started_at) * 1000)
 
 _MEMORY_INTENT_RE = re.compile(
     r"\b("
@@ -270,9 +312,9 @@ async def retrieve_memories(user_id: str, character_id: str, query: str, k: int 
 def _rrf_fusion(
     dense_results: list[Document],
     sparse_results: list[BM25SearchResult],
-    k: int = 60,
-    dense_weight: float = 1.0,
-    sparse_weight: float = 1.5,
+    k: int | None = None,
+    dense_weight: float | None = None,
+    sparse_weight: float | None = None,
     top_k: int = 5,
 ) -> list[str]:
     """
@@ -283,17 +325,20 @@ def _rrf_fusion(
 
     Returns a list of page_content strings ready for prompt injection.
     """
+    rrf_k = settings.memory_rrf_k if k is None else k
+    dense_score_weight = settings.memory_dense_weight if dense_weight is None else dense_weight
+    sparse_score_weight = settings.memory_sparse_weight if sparse_weight is None else sparse_weight
     scores: dict[str, float] = {}
     texts: dict[str, str] = {}
 
     for rank, doc in enumerate(dense_results, start=1):
         key = doc.page_content
-        scores[key] = scores.get(key, 0.0) + dense_weight / (k + rank)
+        scores[key] = scores.get(key, 0.0) + dense_score_weight / (rrf_k + rank)
         texts[key] = doc.page_content
 
     for rank, result in enumerate(sparse_results, start=1):
         key = result.text
-        scores[key] = scores.get(key, 0.0) + sparse_weight / (k + rank)
+        scores[key] = scores.get(key, 0.0) + sparse_score_weight / (rrf_k + rank)
         texts[key] = result.text
 
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
@@ -301,6 +346,16 @@ def _rrf_fusion(
 
 
 async def hybrid_retrieve(user_id: str, character_id: str, query: str, k: int = 5) -> str | None:
+    context, _ = await hybrid_retrieve_with_metrics(user_id, character_id, query, k)
+    return context
+
+
+async def hybrid_retrieve_with_metrics(
+    user_id: str,
+    character_id: str,
+    query: str,
+    k: int = 5,
+) -> tuple[str | None, HybridRetrievalMetrics]:
     """
     Hybrid retrieval: BM25 sparse + ChromaDB dense, fused via RRF.
 
@@ -308,35 +363,51 @@ async def hybrid_retrieve(user_id: str, character_id: str, query: str, k: int = 
     not by relevance, so ranking doesn't apply). Turn retrieval is scoped to
     (user_id, character_id) so memories don't leak across characters.
     """
+    total_started_at = time.perf_counter()
+    metrics = HybridRetrievalMetrics(query_length=len(query), top_k=k)
     if not settings.memory_enabled:
-        return None
+        metrics.route = "disabled"
+        metrics.total_latency_ms = _elapsed_ms(total_started_at)
+        return None, metrics
 
     parts: list[str] = []
 
     # 1. Always fetch structured facts first (global + character-scoped)
+    facts_started_at = time.perf_counter()
     facts = await retrieve_facts(user_id, character_id)
+    metrics.facts_latency_ms = _elapsed_ms(facts_started_at)
     if facts:
+        metrics.facts_count = sum(1 for line in facts.splitlines() if line.startswith("- "))
         parts.append(facts)
 
     if not should_retrieve_turn_memories(query):
+        metrics.route = "facts_only"
+        metrics.skipped_turn_retrieval = True
+        metrics.total_latency_ms = _elapsed_ms(total_started_at)
         logger.debug("hybrid_retrieve: fast-path skipped turn retrieval for %r", query[:60])
-        return "\n\n".join(parts) if parts else None
+        return ("\n\n".join(parts) if parts else None), metrics
 
     # 2. Dense retrieval — over-fetch for better RRF coverage
     dense_docs: list[Document] = []
+    dense_started_at = time.perf_counter()
     try:
         dense_docs = await vectorstore.asimilarity_search(
             query=query,
-            k=k * 2,
+            k=k * settings.memory_dense_overfetch_multiplier,
             filter={"$and": [{"user_id": user_id}, {"character_id": character_id}]},
         )
         # Exclude fact documents — already handled above
         dense_docs = [d for d in dense_docs if d.metadata.get("doc_type") not in ("fact", "character_fact")]
+        metrics.dense_count = len(dense_docs)
     except Exception as e:
         logger.warning("Dense retrieval failed: %s", e)
+        metrics.errors.append(f"dense: {e}")
+    finally:
+        metrics.dense_latency_ms = _elapsed_ms(dense_started_at)
 
     # 3. Sparse (BM25) retrieval — filter by user_id + character_id in metadata
     sparse_results: list[BM25SearchResult] = []
+    sparse_started_at = time.perf_counter()
     try:
         all_sparse = bm25_store.search(query, top_k=k * 2)
         sparse_results = [
@@ -345,21 +416,29 @@ async def hybrid_retrieve(user_id: str, character_id: str, query: str, k: int = 
             and r.metadata.get("character_id") == character_id
             and r.metadata.get("doc_type") not in ("fact", "character_fact")
         ]
+        metrics.sparse_count = len(sparse_results)
     except Exception as e:
         logger.warning("BM25 retrieval failed (non-fatal): %s", e)
+        metrics.errors.append(f"sparse: {e}")
+    finally:
+        metrics.sparse_latency_ms = _elapsed_ms(sparse_started_at)
 
     # 4. Fuse results
     if not dense_docs and not sparse_results:
-        return "\n\n".join(parts) if parts else None
+        metrics.route = "facts_only" if parts else "empty"
+        metrics.total_latency_ms = _elapsed_ms(total_started_at)
+        metrics.bm25_store_size = bm25_store.size()
+        logger.info("retrieval_metrics=%s", metrics.to_dict())
+        return ("\n\n".join(parts) if parts else None), metrics
 
     fused = _rrf_fusion(dense_docs, sparse_results, top_k=k)
+    metrics.fused_count = len(fused)
     if fused:
         turns = "\n".join(f"- {text}" for text in fused)
         parts.append("Relevant past conversation:\n" + turns)
 
-    logger.debug(
-        "hybrid_retrieve: dense=%d sparse=%d fused=%d bm25_store_size=%d",
-        len(dense_docs), len(sparse_results), len(fused), bm25_store.size(),
-    )
+    metrics.bm25_store_size = bm25_store.size()
+    metrics.total_latency_ms = _elapsed_ms(total_started_at)
+    logger.info("retrieval_metrics=%s", metrics.to_dict())
 
-    return "\n\n".join(parts) if parts else None
+    return ("\n\n".join(parts) if parts else None), metrics

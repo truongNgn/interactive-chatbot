@@ -62,6 +62,7 @@ class AudioChunkPayload(BaseModel):
     audio_base64: str = ""
     duration_ms: int = 0
     visemes: list[VisemeEntry] = Field(default_factory=list)
+    turn_id: str | None = None
 
 
 class ErrorPayload(BaseModel):

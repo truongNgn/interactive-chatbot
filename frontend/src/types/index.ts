@@ -10,6 +10,7 @@ export interface AudioChunkPayload {
   audio_base64: string
   duration_ms: number
   visemes: VisemeKeyframe[]
+  turn_id?: string | null
 }
 
 export interface VisemeKeyframe {
@@ -75,6 +76,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   text: string
   emotion?: Emotion
+  turnId?: string
+  feedbackRating?: 'up' | 'down'
 }
 
 export type WsStatus = 'connecting' | 'open' | 'closed' | 'error'

@@ -8,6 +8,8 @@ import { useSpeechInput } from '../hooks/useSpeechInput'
 import { useChatStore } from '../store/chatStore'
 import type { Emotion } from '../types'
 
+const API_BASE_URL = 'http://localhost:8000'
+
 interface ChatInterfaceProps {
   sendMessage: (text: string) => void
   sendInterrupt: () => void
@@ -43,6 +45,9 @@ export function ChatInterface({
     ttsEnabled,
     autoSendVoiceTranscript,
     warmupStatus,
+    userId,
+    activeSessionId,
+    setMessageFeedback,
   } = useChatStore()
 
   useEffect(() => {
@@ -112,17 +117,40 @@ export function ChatInterface({
     [handleSend],
   )
 
+  const submitFeedback = useCallback(async (messageId: string, turnId: string, rating: 'up' | 'down') => {
+    setMessageFeedback(messageId, rating)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/feedback/rating`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          session_id: activeSessionId,
+          turn_id: turnId,
+          rating,
+          message_id: messageId,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(`Rating failed: ${response.status}`)
+      }
+    } catch (error) {
+      console.error('[Feedback] Failed to submit rating:', error)
+    }
+  }, [activeSessionId, setMessageFeedback, userId])
+
   const isEmpty = messages.length === 0
   const warmupRunning = warmupStatus?.status === 'running'
   const micDisabled = wsStatus !== 'open' || !speechInput.supported || speechInput.permissionDenied
-  const voiceStateLabel = {
+  const voiceStateLabels: Record<string, string> = {
     idle: '',
     listening: 'Listening',
     recording: 'Recording',
     processing: 'Processing',
     uploading: 'Transcribing',
     error: 'Voice input error',
-  }[speechInput.state]
+  }
+  const voiceStateLabel = voiceStateLabels[speechInput.state] ?? ''
   const micTitle = !speechInput.supported
     ? 'Voice input is not supported'
     : speechInput.permissionDenied
@@ -159,6 +187,30 @@ export function ChatInterface({
               }}
             >
               {msg.text}
+              {msg.role === 'assistant' && msg.turnId && (
+                <div style={s.feedbackActions}>
+                  <button
+                    onClick={() => submitFeedback(msg.id, msg.turnId!, 'up')}
+                    style={{
+                      ...s.feedbackBtn,
+                      ...(msg.feedbackRating === 'up' ? s.feedbackBtnActive : null),
+                    }}
+                    title="Good response"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    onClick={() => submitFeedback(msg.id, msg.turnId!, 'down')}
+                    style={{
+                      ...s.feedbackBtn,
+                      ...(msg.feedbackRating === 'down' ? s.feedbackBtnActive : null),
+                    }}
+                    title="Bad response"
+                  >
+                    ▼
+                  </button>
+                </div>
+              )}
             </div>
           ))
         )}
@@ -313,6 +365,29 @@ const s: Record<string, React.CSSProperties> = {
     backdropFilter: 'blur(6px)',
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
+  },
+  feedbackActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    justifyContent: 'flex-end',
+    marginTop: 6,
+  },
+  feedbackBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    border: '1px solid rgba(255,255,255,0.12)',
+    background: 'rgba(15,23,42,0.45)',
+    color: '#94a3b8',
+    cursor: 'pointer',
+    fontSize: 10,
+    lineHeight: 1,
+  },
+  feedbackBtnActive: {
+    color: '#e2e8f0',
+    borderColor: 'rgba(99,102,241,0.55)',
+    background: 'rgba(99,102,241,0.28)',
   },
   ttsBadge: {
     alignSelf: 'center',

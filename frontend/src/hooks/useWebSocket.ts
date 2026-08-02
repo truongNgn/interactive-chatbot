@@ -58,6 +58,7 @@ export function useWebSocket(onClearQueue?: () => void) {
             role: 'assistant',
             text: msg.text,
             emotion: msg.emotion,
+            turnId: msg.turn_id ?? undefined,
           })
           // Feed audio pipeline
           enqueueAudio(msg)

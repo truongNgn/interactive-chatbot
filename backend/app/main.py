@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.character_registry import character_registry
 from app.config import settings
+from app.feedback import RatingRequest, default_feedback_store
 from app.gateway.websocket import websocket_chat as gateway_websocket_chat
 from app.llm_handler import get_llm_handler
 from app.stt_handler import BaseSTTHandler, get_stt_handler, validate_audio_upload
@@ -166,6 +167,17 @@ async def transcribe_audio(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return result.model_dump()
+
+
+@app.post("/api/feedback/rating")
+async def submit_feedback_rating(rating: RatingRequest):
+    await default_feedback_store.record_rating(rating)
+    return {"ok": True}
+
+
+@app.get("/api/feedback/session/{session_id}")
+async def get_feedback_session(session_id: str):
+    return {"events": await default_feedback_store.get_session_events(session_id)}
 
 
 @app.websocket("/ws/chat")

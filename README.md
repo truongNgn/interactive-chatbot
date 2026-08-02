@@ -87,6 +87,15 @@ python -c "from app.main import app; print(app.title)"
 python scripts/smoke_baseline.py
 python scripts/smoke_stage2.py
 python scripts/smoke_stage3.py
+python scripts/smoke_stage4.py
+python scripts/smoke_stage5.py
+```
+
+Retrieval eval:
+
+```bash
+cd backend
+python scripts/eval_retrieval.py
 ```
 
 `/health` may report `status=degraded` if the configured LLM provider is not running. To smoke a live text-only WebSocket turn when Ollama/vLLM/DeepSeek is available:

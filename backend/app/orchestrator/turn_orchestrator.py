@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Protocol
 
 from app.gateway.schemas import ChatRequest
 from app.agents.base import AgentContext
+from app.feedback import FeedbackEvent, default_feedback_store
+from app.guardrails import GuardrailPipeline
 from app.models import AudioChunkPayload, DonePayload, ErrorPayload, SentenceChunk, VisemeEntry
 from app.orchestrator.legacy import Orchestrator
 from app.tools import ToolInput, default_tool_registry
@@ -29,6 +32,7 @@ class TurnOrchestrator:
     def __init__(self, tts_handler: BaseTTSHandler, sentence_producer: Orchestrator) -> None:
         self._tts = tts_handler
         self._sentence_producer = sentence_producer
+        self._guardrails = GuardrailPipeline()
 
     def interrupt(self) -> None:
         self._sentence_producer.interrupt()
@@ -37,6 +41,20 @@ class TurnOrchestrator:
         self._sentence_producer.reset()
 
     async def run_turn(self, request: ChatRequest, sink: StreamingSink) -> None:
+        started_at = time.perf_counter()
+        await self._record_event(request, "turn_started", {
+            "character_id": request.character_id,
+            "tts_enabled": request.tts_enabled,
+            "router_enabled": request.router_enabled,
+        })
+        input_decision = await self._guardrails.check_input(request)
+        await self._record_event(request, "input_guardrail_checked", input_decision.to_dict())
+        if not input_decision.allowed:
+            await self._record_event(request, "guardrail_blocked", input_decision.to_dict())
+            await sink.send_text(ErrorPayload(message=input_decision.reason or "Message blocked.").model_dump_json())
+            await self._record_event(request, "turn_failed", {"reason": input_decision.reason, "blocked": True})
+            return
+
         sentence_queue: asyncio.Queue[SentenceChunk | None] = asyncio.Queue()
         tts_queue: asyncio.Queue[tuple[SentenceChunk, asyncio.Task[bytes]] | None] = asyncio.Queue()
 
@@ -64,16 +82,28 @@ class TurnOrchestrator:
 
                 chunk, tts_task = item
                 audio_bytes = await tts_task
+                output_decision = await self._guardrails.check_output(chunk.text)
+                if output_decision.reason:
+                    await self._record_event(request, "output_guardrail_checked", output_decision.to_dict())
+                if output_decision.redacted_text is not None and output_decision.redacted_text != chunk.text:
+                    chunk = chunk.model_copy(update={"text": output_decision.redacted_text})
                 payload = await self._build_audio_payload(request, chunk, audio_bytes)
                 await sink.send_text(payload.model_dump_json())
 
             await sink.send_text(DonePayload().model_dump_json())
+            await self._record_event(
+                request,
+                "turn_completed",
+                {"latency_ms": int((time.perf_counter() - started_at) * 1000)},
+            )
 
         except asyncio.CancelledError:
             logger.info("Turn pipeline cancelled [turn=%s]", request.turn_id)
+            await self._record_event(request, "turn_failed", {"reason": "cancelled"})
             raise
         except Exception as exc:
             logger.error("Turn pipeline error [turn=%s]: %s", request.turn_id, exc)
+            await self._record_event(request, "turn_failed", {"reason": str(exc)})
             try:
                 await sink.send_text(ErrorPayload(message=str(exc)).model_dump_json())
             except Exception:
@@ -158,6 +188,18 @@ class TurnOrchestrator:
             audio_base64=audio_b64,
             duration_ms=duration_ms,
             visemes=visemes,
+            turn_id=request.turn_id,
+        )
+
+    async def _record_event(self, request: ChatRequest, event_type: str, payload: dict) -> None:
+        await default_feedback_store.record_event(
+            FeedbackEvent(
+                event_type=event_type,
+                user_id=request.user_id,
+                session_id=request.session_id,
+                turn_id=request.turn_id,
+                payload=payload,
+            )
         )
 
 

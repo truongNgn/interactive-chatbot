@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     memory_retrieval_count: int = 5
     memory_dedup_threshold: float = 0.95
     memory_recency_weight: float = 0.3
+    memory_rrf_k: int = 60
+    memory_dense_weight: float = 1.0
+    memory_sparse_weight: float = 1.5
+    memory_dense_overfetch_multiplier: int = 2
 
     # Server
     host: str = "0.0.0.0"

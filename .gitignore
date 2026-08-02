@@ -46,6 +46,7 @@ backend/.uv-cache/
 # Generated data — vector DBs & lore parent store (personal/runtime data, not source)
 backend/chroma_data/
 backend/lore_data/
+backend/data/feedback/*.jsonl
 
 # Bỏ qua các file log lỗi (tùy chọn nhưng nên có)
 npm-debug.log*

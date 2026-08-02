@@ -112,6 +112,7 @@ interface ChatState {
   // Actions
   setWsStatus: (status: WsStatus) => void
   addMessage: (msg: ChatMessage) => void
+  setMessageFeedback: (messageId: string, rating: 'up' | 'down') => void
   enqueueAudio: (chunk: AudioChunkPayload) => void
   dequeueAudio: () => AudioChunkPayload | undefined
   clearQueue: () => void
@@ -176,6 +177,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   addMessage: (msg) => {
     set((state) => ({ messages: [...state.messages, msg] }))
     // Auto-save after adding message
+    get().saveCurrentSession()
+  },
+
+  setMessageFeedback: (messageId, rating) => {
+    set((state) => ({
+      messages: state.messages.map((msg) =>
+        msg.id === messageId ? { ...msg, feedbackRating: rating } : msg
+      ),
+    }))
     get().saveCurrentSession()
   },
 
