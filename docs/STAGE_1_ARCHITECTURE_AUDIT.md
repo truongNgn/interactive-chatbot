@@ -1,6 +1,6 @@
 # Stage 1 Architecture Audit — Baseline Runnable
 
-Liên quan: [AI Agent Platform Plan](AI_AGENT_PLATFORM_WORKFLOW_IMPLEMENTATION_PLAN.md), [BRAIN.md](../BRAIN.md), [developer_log.md](../developer_log.md).
+Related: [AI Agent Platform Plan](AI_AGENT_PLATFORM_WORKFLOW_IMPLEMENTATION_PLAN.md), [BRAIN.md](../BRAIN.md), [developer_log.md](../developer_log.md).
 
 ## Current Runtime Flow
 

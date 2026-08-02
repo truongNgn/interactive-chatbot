@@ -5,14 +5,17 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth import AuthContext, get_request_auth_context, issue_dev_token
 from app.character_registry import character_registry
 from app.config import settings
 from app.feedback import RatingRequest, default_feedback_store
 from app.gateway.websocket import websocket_chat as gateway_websocket_chat
 from app.llm_handler import get_llm_handler
+from app.rate_limit import RateLimitMiddleware
+from app.session_history import session_history_ready
 from app.stt_handler import BaseSTTHandler, get_stt_handler, validate_audio_upload
 from app.tts_handler import BaseTTSHandler, get_tts_handler
 from app.warmup import start_background_warmup, warmup_state
@@ -78,6 +81,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RateLimitMiddleware)
 
 
 @app.get("/health")
@@ -103,6 +107,43 @@ async def health():
             "language": settings.stt_language or None,
         },
     }
+
+
+@app.get("/ready")
+async def readiness():
+    llm = get_llm_handler()
+    llm_ok = await llm.health_check()
+    history_ok = session_history_ready()
+    tts: BaseTTSHandler = app.state.tts_handler
+    ready = llm_ok and history_ok
+    return {
+        "status": "ready" if ready else "degraded",
+        "app": {"ready": True},
+        "llm": {"provider": settings.llm_provider, "ready": llm_ok},
+        "session_history": {
+            "backend": settings.session_backend,
+            "ready": history_ok,
+        },
+        "vector_store": {
+            "provider": "chroma",
+            "ready": True,
+            "path": settings.chroma_path,
+        },
+        "database": {
+            "provider": "postgres",
+            "configured": bool(settings.database_url),
+            "ready": settings.session_backend.lower() != "postgres",
+        },
+        "tts": {"ready": tts.is_active},
+        "warmup": warmup_state.to_dict(),
+    }
+
+
+@app.post("/api/auth/dev-token")
+async def create_dev_token(user_id: str | None = None):
+    if settings.auth_required:
+        raise HTTPException(status_code=404, detail="Dev token endpoint disabled when AUTH_REQUIRED=true.")
+    return {"access_token": issue_dev_token(user_id), "token_type": "bearer"}
 
 
 @app.get("/api/voices")
@@ -170,14 +211,21 @@ async def transcribe_audio(
 
 
 @app.post("/api/feedback/rating")
-async def submit_feedback_rating(rating: RatingRequest):
-    await default_feedback_store.record_rating(rating)
+async def submit_feedback_rating(
+    rating: RatingRequest,
+    auth: AuthContext = Depends(get_request_auth_context),
+):
+    await default_feedback_store.record_rating(rating.model_copy(update={"user_id": auth.user_id}))
     return {"ok": True}
 
 
 @app.get("/api/feedback/session/{session_id}")
-async def get_feedback_session(session_id: str):
-    return {"events": await default_feedback_store.get_session_events(session_id)}
+async def get_feedback_session(
+    session_id: str,
+    auth: AuthContext = Depends(get_request_auth_context),
+):
+    events = await default_feedback_store.get_session_events(session_id)
+    return {"events": [event for event in events if event.get("user_id") == auth.user_id]}
 
 
 @app.websocket("/ws/chat")

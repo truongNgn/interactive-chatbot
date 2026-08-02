@@ -98,6 +98,22 @@ class Settings(BaseSettings):
     port: int = 8000
     log_level: str = "INFO"
 
+    # Production hardening (Stage 7)
+    auth_required: bool = False
+    auth_token_secret: str = "change-me-dev-secret"
+    auth_token_expire_minutes: int = 1440
+    auth_dev_user_id: str = "dev_user"
+    max_ws_message_bytes: int = 32768
+    max_rest_request_bytes: int = 1048576
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 120
+    rate_limit_window_seconds: int = 60
+    ws_rate_limit_messages: int = 60
+    ws_rate_limit_window_seconds: int = 60
+    session_backend: str = "file"  # "file" | "memory"
+    session_history_path: str = "./data/session_history"
+    database_url: str = "postgresql+asyncpg://chatbot:chatbot@postgres:5432/chatbot"
+
     # LangSmith Observability
     # Keep both modern LANGSMITH_* and legacy LANGCHAIN_* names so older docs
     # and newer SDKs work from the same .env file.

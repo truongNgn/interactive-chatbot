@@ -8,11 +8,13 @@ import logging
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from app.auth import websocket_auth_context
 from app.config import settings
 from app.gateway.schemas import ChatRequest, parse_client_message
 from app.llm_handler import get_llm_handler
 from app.models import ErrorPayload
 from app.orchestrator import Orchestrator, TurnOrchestrator
+from app.rate_limit import allow_ws_message
 from app.tts_handler import BaseTTSHandler
 from app.warmup import warmup_state
 
@@ -35,9 +37,15 @@ def _build_turn_orchestrator(tts: BaseTTSHandler, provider: str) -> TurnOrchestr
 
 
 async def websocket_chat(websocket: WebSocket) -> None:
+    try:
+        auth_context = websocket_auth_context(websocket)
+    except Exception:
+        await websocket.close(code=1008)
+        return
+
     await websocket.accept()
     client = websocket.client
-    logger.info("WebSocket connected: %s", client)
+    logger.info("WebSocket connected: %s user=%s auth=%s", client, auth_context.user_id, auth_context.mode)
 
     tts: BaseTTSHandler = websocket.app.state.tts_handler
     current_provider = settings.llm_provider
@@ -49,6 +57,7 @@ async def websocket_chat(websocket: WebSocket) -> None:
         "type": "connected",
         "provider": current_provider,
         "warmup": warmup_state.to_dict(),
+        "auth": {"mode": auth_context.mode, "user_id": auth_context.user_id},
     }))
 
     async def _cancel_current() -> None:
@@ -80,6 +89,12 @@ async def websocket_chat(websocket: WebSocket) -> None:
     try:
         while True:
             raw = await websocket.receive_text()
+            if len(raw.encode("utf-8")) > settings.max_ws_message_bytes:
+                await websocket.send_text(ErrorPayload(message="WebSocket message too large.").model_dump_json())
+                continue
+            if not allow_ws_message(websocket, auth_context.user_id):
+                await websocket.send_text(ErrorPayload(message="Rate limit exceeded.").model_dump_json())
+                continue
 
             try:
                 data = json.loads(raw)
@@ -87,7 +102,7 @@ async def websocket_chat(websocket: WebSocket) -> None:
                 await websocket.send_text(ErrorPayload(message="Invalid JSON").model_dump_json())
                 continue
 
-            message = parse_client_message(data)
+            message = parse_client_message(data, authenticated_user_id=auth_context.user_id)
 
             if message.error:
                 await websocket.send_text(ErrorPayload(message=message.error).model_dump_json())

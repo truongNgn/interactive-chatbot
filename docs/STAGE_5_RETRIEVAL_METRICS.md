@@ -1,6 +1,6 @@
 # Stage 5 Retrieval Metrics Report
 
-Liên quan: [AI Agent Platform Plan](AI_AGENT_PLATFORM_WORKFLOW_IMPLEMENTATION_PLAN.md), [Stage 4 Audit](STAGE_4_ARCHITECTURE_AUDIT.md), [BRAIN.md](../BRAIN.md), [developer_log.md](../developer_log.md).
+Related: [AI Agent Platform Plan](AI_AGENT_PLATFORM_WORKFLOW_IMPLEMENTATION_PLAN.md), [Stage 4 Audit](STAGE_4_ARCHITECTURE_AUDIT.md), [BRAIN.md](../BRAIN.md), [developer_log.md](../developer_log.md).
 
 ## Scope
 

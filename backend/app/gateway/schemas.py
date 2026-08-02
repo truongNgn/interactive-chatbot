@@ -28,7 +28,7 @@ class MessageParseResult(BaseModel):
     error: str | None = None
 
 
-def parse_client_message(data: dict) -> MessageParseResult:
+def parse_client_message(data: dict, authenticated_user_id: str | None = None) -> MessageParseResult:
     msg_type = data.get("type", "")
 
     if msg_type == "interrupt":
@@ -56,7 +56,7 @@ def parse_client_message(data: dict) -> MessageParseResult:
             type="user_message",
             request=ChatRequest(
                 text=user_text,
-                user_id=str(data.get("user_id", "default_user")),
+                user_id=authenticated_user_id or settings.auth_dev_user_id,
                 session_id=str(data.get("session_id", "default_session")),
                 tts_enabled=bool(data.get("tts_enabled", True)),
                 router_enabled=bool(data.get("router_enabled", settings.router_enabled)),

@@ -1,6 +1,6 @@
 # Stage 6 Observability, Evaluation & Reliability Report
 
-Liên quan: [AI Agent Platform Plan](AI_AGENT_PLATFORM_WORKFLOW_IMPLEMENTATION_PLAN.md), [Stage 5 Metrics](STAGE_5_RETRIEVAL_METRICS.md), [BRAIN.md](../BRAIN.md), [developer_log.md](../developer_log.md).
+Related: [AI Agent Platform Plan](AI_AGENT_PLATFORM_WORKFLOW_IMPLEMENTATION_PLAN.md), [Stage 5 Metrics](STAGE_5_RETRIEVAL_METRICS.md), [BRAIN.md](../BRAIN.md), [developer_log.md](../developer_log.md).
 
 ## Scope
 

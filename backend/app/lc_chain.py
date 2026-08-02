@@ -5,8 +5,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_community.chat_message_histories import ChatMessageHistory
 from app.config import settings
+from app.session_history import get_session_history
 
 # 2. Prompt template — system_prompt được inject động từ lc_graph.py (build_system_prompt)
 #    bao gồm: persona + emotion_rules + memory_context (nếu có)
@@ -15,16 +15,6 @@ prompt = ChatPromptTemplate.from_messages([
     MessagesPlaceholder("history"),
     ("human", "{user_input}"),
 ])
-
-# In-memory session store (shared across all chain instances)
-_session_store: dict[str, ChatMessageHistory] = {}
-
-
-def get_session_history(session_id: str) -> ChatMessageHistory:
-    if session_id not in _session_store:
-        _session_store[session_id] = ChatMessageHistory()
-    return _session_store[session_id]
-
 
 def _resolve_model(model: str | None, provider: str) -> str:
     if model:

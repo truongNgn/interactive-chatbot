@@ -8,6 +8,7 @@ from langgraph.graph import StateGraph, START, END
 from app.agents.base import AgentContext
 from app.persona import build_system_prompt
 from app.lc_chain import build_chain
+from app.session_history import build_history_key
 from app.tools import ToolInput, default_tool_registry
 
 
@@ -72,7 +73,11 @@ async def generate_node(state: ChatState) -> dict:
 
     q = state["token_queue"]
     full_response = ""
-    config = {"configurable": {"session_id": state["session_id"]}}
+    config = {
+        "configurable": {
+            "session_id": build_history_key(state["user_id"], state["session_id"]),
+        }
+    }
 
     chain = build_chain(state.get("selected_model"))
 

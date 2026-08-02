@@ -20,13 +20,30 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 
-from elevenlabs import VoiceSettings
-from elevenlabs.client import AsyncElevenLabs
-
 from app.config import settings
 from app.models import Emotion, SentenceChunk
 
 logger = logging.getLogger(__name__)
+
+try:
+    from elevenlabs import VoiceSettings
+    from elevenlabs.client import AsyncElevenLabs
+except Exception as exc:  # pragma: no cover - depends on optional SDK packaging
+    logger.warning("ElevenLabs SDK import failed; cloud TTS disabled: %s", exc)
+    AsyncElevenLabs = None  # type: ignore[assignment]
+
+    class VoiceSettings:  # type: ignore[no-redef]
+        def __init__(
+            self,
+            stability: float,
+            similarity_boost: float,
+            style: float,
+            use_speaker_boost: bool,
+        ) -> None:
+            self.stability = stability
+            self.similarity_boost = similarity_boost
+            self.style = style
+            self.use_speaker_boost = use_speaker_boost
 
 # ---------------------------------------------------------------------------
 # Emotion → VoiceSettings mapping
@@ -97,6 +114,8 @@ class BaseTTSHandler(ABC):
 
 class ElevenLabsTTSHandler(BaseTTSHandler):
     def __init__(self) -> None:
+        if AsyncElevenLabs is None:
+            raise RuntimeError("ElevenLabs SDK is unavailable.")
         self._client = AsyncElevenLabs(api_key=settings.elevenlabs_api_key)
         self._voice_id = settings.elevenlabs_voice_id
         self._model_id = settings.elevenlabs_model_id
@@ -283,6 +302,9 @@ class NoOpTTSHandler(BaseTTSHandler):
 
 def get_tts_handler() -> BaseTTSHandler:
     if settings.elevenlabs_api_key:
+        if AsyncElevenLabs is None:
+            logger.error("ELEVENLABS_API_KEY is set, but ElevenLabs SDK is unavailable; fallback text-only.")
+            return NoOpTTSHandler()
         logger.info("TTS: ElevenLabs (voice=%s, model=%s)", settings.elevenlabs_voice_id, settings.elevenlabs_model_id)
         return ElevenLabsTTSHandler()
 

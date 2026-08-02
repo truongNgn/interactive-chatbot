@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: chatbot
+      POSTGRES_PASSWORD: chatbot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatbot -d chatbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   ollama:
     image: ollama/ollama
     volumes:
@@ -13,10 +30,15 @@ services:
     environment:
       # Override host để trỏ sang ollama service thay vì localhost
       OLLAMA_HOST: http://ollama:11434
+      DATABASE_URL: postgresql+asyncpg://chatbot:chatbot@postgres:5432/chatbot
     volumes:
       - chroma_data:/app/chroma_data
+      - session_history:/app/data/session_history
     depends_on:
-      - ollama
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -32,3 +54,5 @@ services:
 volumes:
   ollama_data:
   chroma_data:
+  postgres_data:
+  session_history:
