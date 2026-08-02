@@ -19,6 +19,7 @@ import wave
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
+from importlib import import_module
 
 from app.config import settings
 from app.models import Emotion, SentenceChunk
@@ -164,7 +165,7 @@ class ElevenLabsTTSHandler(BaseTTSHandler):
 def _load_xtts_model(model_name: str):
     """Load XTTS model một lần duy nhất, cache lại để dùng lại."""
     try:
-        import torch
+        torch = import_module("torch")
         logger.info("PyTorch %s | CUDA available: %s", torch.__version__, torch.cuda.is_available())
     except ImportError as exc:
         raise RuntimeError(
@@ -173,7 +174,7 @@ def _load_xtts_model(model_name: str):
         ) from exc
 
     try:
-        import torchaudio  # noqa: F401
+        import_module("torchaudio")
         logger.info("torchaudio OK")
     except ImportError as exc:
         raise RuntimeError(
