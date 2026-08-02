@@ -10,6 +10,8 @@ import { useChatStore } from './store/chatStore'
 export function App() {
   const { stopPlayback } = useAudioQueue()
   const { sendMessage, sendInterrupt, sendSetModel } = useWebSocket(stopPlayback)
+  const authToken = useChatStore((state) => state.authToken)
+  const refreshServerConversations = useChatStore((state) => state.refreshServerConversations)
 
   const handleInterrupt = useCallback(() => {
     stopPlayback()
@@ -30,6 +32,10 @@ export function App() {
     startListening()
     return () => stopListening()
   }, [startListening, stopListening])
+
+  useEffect(() => {
+    if (authToken) void refreshServerConversations()
+  }, [authToken, refreshServerConversations])
 
   // New session: update store + reconnect WS với sessionId mới không cần thiết
   // vì useWebSocket luôn đọc activeSessionId từ store khi gửi message.

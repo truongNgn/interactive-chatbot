@@ -13,6 +13,8 @@ Implemented in this slice:
 - File-backed session history behind a feature flag, replacing purely in-memory `_session_store` behavior.
 - Readiness endpoint that distinguishes `ready` from `degraded`.
 - Docker Compose now includes Postgres and a persistent session-history volume.
+- Postgres-backed users, conversations, and messages MVP.
+- Frontend login/register/logout and conversation restore MVP.
 
 ## New Runtime Flow
 
@@ -35,6 +37,9 @@ REST requests pass through `RateLimitMiddleware`. Feedback rating and debug endp
 - `backend/app/auth.py`: JWT-compatible HS256 dev token issuing and verification, plus REST/WS auth context helpers.
 - `backend/app/rate_limit.py`: fixed-window in-memory REST/WS rate limiter.
 - `backend/app/session_history.py`: `FileChatMessageHistory`, `build_history_key(user_id, session_id)`, and readiness probe.
+- `backend/app/db.py`: async SQLAlchemy engine, session factory, dev schema initialization, readiness check.
+- `backend/app/db_models.py`: SQLAlchemy `User`, `Conversation`, and `Message` models.
+- `backend/app/conversation_store.py`: user auth repository, password hashing, conversation/message persistence and query helpers.
 - `backend/app/gateway/schemas.py`: `parse_client_message(..., authenticated_user_id)` ignores client-supplied `user_id`.
 - `backend/app/gateway/websocket.py`: WebSocket auth, message size limit, and message rate limit.
 - `backend/app/lc_chain.py`: uses `app.session_history.get_session_history`.
@@ -59,6 +64,7 @@ WS_RATE_LIMIT_WINDOW_SECONDS=60
 SESSION_BACKEND=file
 SESSION_HISTORY_PATH=./data/session_history
 DATABASE_URL=postgresql+asyncpg://chatbot:chatbot@postgres:5432/chatbot
+DATABASE_AUTO_CREATE=true
 ```
 
 ## Docker Compose
@@ -87,8 +93,8 @@ Latest local result:
 
 ## Remaining Stage 7 Gaps
 
-- Real user registration/login endpoints and password hashing.
-- Postgres-backed conversations/messages through SQLAlchemy/Alembic.
-- Conversation listing APIs for frontend sidebar restore.
+- Alembic migrations for production schema versioning.
+- Refresh-token rotation.
+- Postgres-backed feedback/audit logs.
 - Redis or another shared rate limiter for multi-process deployments.
-- Frontend token storage and login/register UI.
+- Hardening the frontend auth UX beyond the MVP sidebar form.

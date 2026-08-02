@@ -39,10 +39,28 @@ Current storage:
 | Structured extracted facts | ChromaDB metadata/docs | Yes |
 | Sparse BM25 index | RAM, mirrored/rebuilt at runtime | Rebuildable |
 | User identity | Stage 7 dev/JWT-compatible auth context | Partially |
-| Conversation list for a user | Not implemented yet | No |
+| Conversation list for a user | PostgreSQL `conversations` table | Yes |
 | Audit and analytics | JSONL feedback events | Partially |
 
-## 1. Problems PostgreSQL Should Solve
+## 1. Current Implementation Status
+
+Completed MVP:
+- `users`, `conversations`, and `messages` SQLAlchemy models.
+- Register/login endpoints with PBKDF2 password hashing.
+- JWT-compatible bearer token issuing through the existing auth helper.
+- Authenticated conversation list/detail/delete endpoints.
+- WebSocket turns persist human and assistant messages to Postgres when the authenticated user exists.
+- Frontend login/register/logout panel.
+- Frontend bearer token storage and tokenized WebSocket connection.
+- Frontend server-side conversation restore after login or page reload.
+
+Still pending:
+- Alembic migrations instead of dev auto-create.
+- Refresh-token rotation.
+- Postgres-backed feedback/audit tables.
+- Redis/shared rate limiter.
+
+## 2. Problems PostgreSQL Should Solve
 
 1. **Durable conversation history:** file-backed history is a useful bridge, but production should store conversations/messages in a transactional database.
 2. **Real user accounts:** Stage 7 no longer trusts payload `user_id`, but register/login/password hashing is still missing.
@@ -50,7 +68,7 @@ Current storage:
 4. **Auditability:** production needs structured records for user actions, messages, feedback, errors, and moderation outcomes.
 5. **Exact relational queries:** Chroma is good for semantic search; Postgres is better for ownership, pagination, joins, quotas, and compliance workflows.
 
-## 2. Target Architecture
+## 3. Target Architecture
 
 ```text
 FastAPI backend
@@ -73,7 +91,7 @@ Rules:
 - **ChromaDB** remains the semantic retrieval layer.
 - Existing `user_id` and `session_id` values in `ChatState` can remain strings, but production should use UUID strings derived from database rows.
 
-## 3. Proposed Schema
+## 4. Proposed Schema
 
 ```sql
 CREATE TABLE users (
@@ -144,7 +162,7 @@ CREATE TABLE audit_logs (
 );
 ```
 
-## 4. Code Changes
+## 5. Code Changes
 
 | File / Area | Change |
 |---|---|
@@ -160,7 +178,7 @@ CREATE TABLE audit_logs (
 | `docker-compose.yml` | Already includes Postgres in Stage 7; add migration startup command or documented migration step. |
 | `frontend/` | Add login/register UI, token storage, WebSocket token passing, and server-side conversation restore. |
 
-## 5. Incremental Implementation Order
+## 6. Incremental Implementation Order
 
 1. **Database infrastructure:** add SQLAlchemy async engine, ORM models, Alembic config, and first migration.
 2. **Conversation/message persistence:** implement `PostgresChatMessageHistory`; keep `SESSION_BACKEND=file|memory|postgres` for rollback.
@@ -171,7 +189,7 @@ CREATE TABLE audit_logs (
 7. **Frontend auth flow:** add login/register and server-side conversation history restore.
 8. **Migration from legacy data:** map old free-form user IDs to a real legacy account if needed.
 
-## 6. Risks And Mitigations
+## 7. Risks And Mitigations
 
 | Risk | Mitigation |
 |---|---|
@@ -182,13 +200,13 @@ CREATE TABLE audit_logs (
 | Secrets in source control | Keep secrets in `.env`; never commit real keys. |
 | Chroma metadata compatibility | Keep Chroma IDs as strings and map DB UUIDs to string metadata. |
 
-## 7. Definition Of Done
+## 8. Definition Of Done
 
-- [ ] `docker compose up` starts Postgres and backend successfully.
+- [x] `docker compose up` includes Postgres and backend wiring.
 - [ ] Alembic migration creates all required tables.
-- [ ] Backend can register and log in a user.
-- [ ] WebSocket requires auth when `AUTH_REQUIRED=true`.
-- [ ] Restarting backend does not lose conversation history.
-- [ ] User A cannot read User B's conversations, feedback, or memory.
-- [ ] Frontend can list and restore the authenticated user's conversations.
-- [ ] `.env.example` documents all new variables without real secrets.
+- [x] Backend can register and log in a user.
+- [x] WebSocket can authenticate via bearer token query parameter.
+- [x] Restarting backend does not lose Postgres conversations/messages.
+- [x] User A cannot read User B's conversations through conversation APIs.
+- [x] Frontend can list and restore the authenticated user's conversations.
+- [x] `.env.example` documents all new variables without real secrets.

@@ -1,6 +1,6 @@
 /**
- * ChatInterface — message history + input bar.
- * Status bar và LLM dropdown đã được chuyển sang Sidebar.
+ * ChatInterface - message history + input bar.
+ * Status bar and LLM dropdown live in Sidebar.
  */
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
@@ -46,6 +46,7 @@ export function ChatInterface({
     autoSendVoiceTranscript,
     warmupStatus,
     userId,
+    authToken,
     activeSessionId,
     setMessageFeedback,
   } = useChatStore()
@@ -122,7 +123,10 @@ export function ChatInterface({
     try {
       const response = await fetch(`${API_BASE_URL}/api/feedback/rating`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
         body: JSON.stringify({
           user_id: userId,
           session_id: activeSessionId,
@@ -137,7 +141,7 @@ export function ChatInterface({
     } catch (error) {
       console.error('[Feedback] Failed to submit rating:', error)
     }
-  }, [activeSessionId, setMessageFeedback, userId])
+  }, [activeSessionId, authToken, setMessageFeedback, userId])
 
   const isEmpty = messages.length === 0
   const warmupRunning = warmupStatus?.status === 'running'
@@ -165,7 +169,7 @@ export function ChatInterface({
           <div style={s.emptyState}>
             <div style={s.emptyIcon}>◈</div>
             <div style={s.emptyTitle}>AI Chatbot</div>
-            <div style={s.emptySubtitle}>Xin chào! Tôi có thể giúp gì cho bạn hôm nay?</div>
+            <div style={s.emptySubtitle}>Hello. What would you like to explore today?</div>
           </div>
         ) : (
           messages.map((msg) => (
@@ -219,7 +223,7 @@ export function ChatInterface({
 
       {/* ── TTS-off badge ───────────────────────────────── */}
       {!ttsEnabled && (
-        <div style={s.ttsBadge}>⚡ Text only — phản hồi nhanh hơn</div>
+        <div style={s.ttsBadge}>Text only - faster response</div>
       )}
 
       {/* ── Input area ──────────────────────────────────── */}
@@ -229,14 +233,14 @@ export function ChatInterface({
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={wsStatus === 'open' ? 'Message AI…' : 'Đang kết nối…'}
+            placeholder={wsStatus === 'open' ? 'Message AI...' : 'Connecting...'}
             disabled={wsStatus !== 'open'}
             rows={2}
             style={s.textarea}
           />
           <div style={s.inputActions}>
             {isAISpeaking && (
-              <button onClick={sendInterrupt} style={s.stopBtn} title="Dừng">
+              <button onClick={sendInterrupt} style={s.stopBtn} title="Stop">
                 ◼
               </button>
             )}
@@ -276,7 +280,7 @@ export function ChatInterface({
                 ...s.sendBtn,
                 opacity: wsStatus !== 'open' || !inputText.trim() ? 0.4 : 1,
               }}
-              title="Gửi (Enter)"
+              title="Send (Enter)"
             >
               ▶
             </button>

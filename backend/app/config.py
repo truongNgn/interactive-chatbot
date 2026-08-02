@@ -113,6 +113,7 @@ class Settings(BaseSettings):
     session_backend: str = "file"  # "file" | "memory"
     session_history_path: str = "./data/session_history"
     database_url: str = "postgresql+asyncpg://chatbot:chatbot@postgres:5432/chatbot"
+    database_auto_create: bool = True
 
     # LangSmith Observability
     # Keep both modern LANGSMITH_* and legacy LANGCHAIN_* names so older docs

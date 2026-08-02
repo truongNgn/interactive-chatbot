@@ -11,6 +11,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.auth import AuthContext, get_request_auth_context, issue_dev_token
 from app.character_registry import character_registry
 from app.config import settings
+from app.conversation_store import (
+    LoginRequest,
+    RegisterRequest,
+    authenticate_user,
+    create_user,
+    delete_conversation,
+    get_conversation_detail,
+    get_user,
+    list_conversations,
+    user_public_dict,
+)
+from app.db import db_ready, init_db
 from app.feedback import RatingRequest, default_feedback_store
 from app.gateway.websocket import websocket_chat as gateway_websocket_chat
 from app.llm_handler import get_llm_handler
@@ -53,6 +65,9 @@ async def lifespan(app: FastAPI):
 
     app.state.tts_handler = tts
     app.state.stt_handler = stt
+    app.state.db_ready = False
+    if settings.database_auto_create:
+        app.state.db_ready = await init_db()
     warmup_task = start_background_warmup(tts, stt)
     if warmup_task and settings.warmup_blocking:
         logger.info("Warmup: blocking startup until warmup completes...")
@@ -114,6 +129,7 @@ async def readiness():
     llm = get_llm_handler()
     llm_ok = await llm.health_check()
     history_ok = session_history_ready()
+    database_ok = await db_ready()
     tts: BaseTTSHandler = app.state.tts_handler
     ready = llm_ok and history_ok
     return {
@@ -132,7 +148,7 @@ async def readiness():
         "database": {
             "provider": "postgres",
             "configured": bool(settings.database_url),
-            "ready": settings.session_backend.lower() != "postgres",
+            "ready": database_ok,
         },
         "tts": {"ready": tts.is_active},
         "warmup": warmup_state.to_dict(),
@@ -144,6 +160,62 @@ async def create_dev_token(user_id: str | None = None):
     if settings.auth_required:
         raise HTTPException(status_code=404, detail="Dev token endpoint disabled when AUTH_REQUIRED=true.")
     return {"access_token": issue_dev_token(user_id), "token_type": "bearer"}
+
+
+@app.post("/api/auth/register")
+async def register(payload: RegisterRequest):
+    try:
+        user = await create_user(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    token = issue_dev_token(user.id)
+    return {"access_token": token, "token_type": "bearer", "user": user_public_dict(user)}
+
+
+@app.post("/api/auth/login")
+async def login(payload: LoginRequest):
+    user = await authenticate_user(payload)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    token = issue_dev_token(user.id)
+    return {"access_token": token, "token_type": "bearer", "user": user_public_dict(user)}
+
+
+@app.get("/api/auth/me")
+async def me(auth: AuthContext = Depends(get_request_auth_context)):
+    user = await get_user(auth.user_id)
+    if user:
+        return {"user": user_public_dict(user), "auth": {"mode": auth.mode}}
+    if auth.mode == "dev":
+        return {"user": {"id": auth.user_id, "email": "", "display_name": "Dev User"}, "auth": {"mode": auth.mode}}
+    raise HTTPException(status_code=404, detail="Authenticated user not found.")
+
+
+@app.get("/api/conversations")
+async def conversations(auth: AuthContext = Depends(get_request_auth_context)):
+    return {"conversations": [item.model_dump() for item in await list_conversations(auth.user_id)]}
+
+
+@app.get("/api/conversations/{conversation_id}")
+async def conversation_detail(
+    conversation_id: str,
+    auth: AuthContext = Depends(get_request_auth_context),
+):
+    detail = await get_conversation_detail(auth.user_id, conversation_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return detail.model_dump()
+
+
+@app.delete("/api/conversations/{conversation_id}")
+async def remove_conversation(
+    conversation_id: str,
+    auth: AuthContext = Depends(get_request_auth_context),
+):
+    deleted = await delete_conversation(auth.user_id, conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return {"ok": True}
 
 
 @app.get("/api/voices")

@@ -122,3 +122,37 @@ export interface WarmupStatus {
   warmed: string[]
   failed: Record<string, string>
 }
+
+export interface AuthUser {
+  id: string
+  email: string
+  display_name?: string | null
+}
+
+export interface AuthResponse {
+  access_token: string
+  token_type: 'bearer'
+  user: AuthUser
+}
+
+export interface ConversationSummary {
+  id: string
+  title: string | null
+  character_id: string
+  created_at: number
+  updated_at: number
+}
+
+export interface ConversationMessage {
+  id: number
+  role: 'human' | 'ai'
+  content: string
+  emotion?: Emotion | null
+  turn_id?: string | null
+  created_at: number
+}
+
+export interface ConversationDetail {
+  conversation: ConversationSummary
+  messages: ConversationMessage[]
+}

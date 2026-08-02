@@ -13,6 +13,7 @@ from typing import Protocol
 
 from app.gateway.schemas import ChatRequest
 from app.agents.base import AgentContext
+from app.conversation_store import append_message
 from app.feedback import FeedbackEvent, default_feedback_store
 from app.guardrails import GuardrailPipeline
 from app.models import AudioChunkPayload, DonePayload, ErrorPayload, SentenceChunk, VisemeEntry
@@ -47,8 +48,16 @@ class TurnOrchestrator:
             "tts_enabled": request.tts_enabled,
             "router_enabled": request.router_enabled,
         })
+        await self._record_chat_message_safe(
+            request,
+            role="human",
+            content=request.text,
+            emotion=None,
+        )
         first_response_ms: int | None = None
         first_audio_ms: int | None = None
+        assistant_text_parts: list[str] = []
+        assistant_emotion: str | None = None
         input_decision = await self._guardrails.check_input(request)
         await self._record_event(request, "input_guardrail_checked", input_decision.to_dict())
         if not input_decision.allowed:
@@ -89,6 +98,8 @@ class TurnOrchestrator:
                     await self._record_event(request, "output_guardrail_checked", output_decision.to_dict())
                 if output_decision.redacted_text is not None and output_decision.redacted_text != chunk.text:
                     chunk = chunk.model_copy(update={"text": output_decision.redacted_text})
+                assistant_text_parts.append(chunk.text)
+                assistant_emotion = chunk.emotion.value
                 payload = await self._build_audio_payload(request, chunk, audio_bytes)
                 if first_response_ms is None:
                     first_response_ms = int((time.perf_counter() - started_at) * 1000)
@@ -107,6 +118,13 @@ class TurnOrchestrator:
                 await sink.send_text(payload.model_dump_json())
 
             await sink.send_text(DonePayload().model_dump_json())
+            if assistant_text_parts:
+                await self._record_chat_message_safe(
+                    request,
+                    role="ai",
+                    content=" ".join(part.strip() for part in assistant_text_parts if part.strip()),
+                    emotion=assistant_emotion,
+                )
             await self._record_event(
                 request,
                 "turn_completed",
@@ -221,6 +239,32 @@ class TurnOrchestrator:
                 payload=payload,
             )
         )
+
+    async def _record_chat_message_safe(
+        self,
+        request: ChatRequest,
+        *,
+        role: str,
+        content: str,
+        emotion: str | None,
+    ) -> None:
+        try:
+            await append_message(
+                user_id=request.user_id,
+                conversation_id=request.session_id,
+                character_id=request.character_id,
+                role=role,  # type: ignore[arg-type]
+                content=content,
+                turn_id=request.turn_id,
+                emotion=emotion,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Postgres conversation persistence failed [turn=%s role=%s]: %s",
+                request.turn_id,
+                role,
+                exc,
+            )
 
 
 async def _empty_audio() -> bytes:

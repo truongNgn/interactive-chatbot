@@ -1,50 +1,115 @@
-# Interactive 3D AI Chatbot — Agentic RAG Companion
+# Interactive 3D AI Agent Platform
 
-An async FastAPI + WebSocket backend orchestrating an LLM pipeline with LangGraph, hybrid (dense + sparse) long-term memory over ChromaDB, sentence-level streaming to TTS, and a React Three Fiber avatar synced via viseme/lip-sync data.
+An async FastAPI + WebSocket AI platform that powers a real-time 3D companion experience. The system combines LangGraph orchestration, hybrid Chroma + BM25 memory retrieval, tool-wrapped multimodal services, guardrails, feedback events, production-hardening boundaries, and a React Three Fiber avatar driven by audio, emotion, and viseme payloads.
 
-Built as a personal deep-dive into the engineering problems that sit underneath every "AI companion" product: how do you give a model persistent memory without it bleeding across contexts, how do you make a multi-second LLM generation *feel* instant, and how do you keep a RAG pipeline correct as it scales past a single flat vector store.
+This is not only a chatbot UI. It is a small AI engineering platform built around the model:
 
-## Why this project
-
-Most chatbot demos call an LLM API and print the response. This one is an attempt to build the layer *around* the model that a real product needs — retrieval, memory isolation, latency engineering, and a pluggable provider layer — and to document the reasoning behind each decision, not just the code.
-
-| What I had to solve | What it demonstrates |
-|---|---|
-| Prevent character A's roleplay memories from leaking into character B's context | Multi-tenant data isolation in a vector store — designing metadata schemas and filters, not just calling `similarity_search` |
-| A single embedding search missed exact keyword matches (names, jargon) | Hybrid retrieval — combined dense (ChromaDB) + sparse (BM25) search, fused with Reciprocal Rank Fusion, with reasoned relative weighting |
-| A 3000-word character backstory doesn't fit well as one embedding, but splitting on fixed length breaks mid-sentence | Two-tier chunking — structure-based (Markdown headings) first, recursive character splitting only for oversized sections, parent/child retrieval so search stays precise but generation gets full context |
-| Users perceive "typing…" silence as broken, even though the model is streaming fine | Latency engineering — re-buffering an LLM token stream into sentence-level chunks with an adaptive first-chunk threshold, so audio starts before the full response is generated |
-| Coupling business logic to one LLM/TTS vendor makes the system brittle | Provider abstraction — swappable LLM (Ollama / vLLM / DeepSeek) and TTS (ElevenLabs / Coqui XTTS-v2) behind a common interface, plus a heuristic router that downgrades to a cheaper model for simple queries |
-| Orchestration logic scattered across callbacks becomes unreadable fast | Explicit state-machine orchestration with LangGraph instead of an implicit prompt chain — the pipeline is a graph you can read, trace, and extend |
-
-## Highlights
-
-- **LangGraph orchestration** — a 4-node state machine (`retrieve_memories → retrieve_character_context → build_prompt → generate → store_memories`) instead of a single linear chain, with independent retrieval nodes fanned out in parallel from `START`.
-- **Hybrid RAG memory** — ChromaDB dense retrieval + in-memory BM25 sparse retrieval, fused with Reciprocal Rank Fusion (RRF), scoped per `(user_id, character_id)` so roleplay memories never leak across characters. Global vs. character-scoped facts are stored separately so identity info (name, job) still transfers between characters while character-specific secrets don't.
-- **Multi-character roleplay** — each character is defined by a Markdown "brain" document (identity/backstory/personality/relationships/rules), chunked with a two-tier strategy: structure-based (Markdown headings) at the top level, parent/child recursive splitting for oversized sections — searched at the child granularity, generated from the full parent section, with core identity sections always anchored regardless of similarity.
-- **Two-tier streaming** — LLM token stream is re-buffered into sentence-level chunks (adaptive threshold: short first chunk for fast time-to-first-audio, longer later chunks for fewer TTS calls) before being piped through TTS, Rhubarb lip-sync, and out to the avatar over WebSocket.
-- **Pluggable providers** — LLM (Ollama / vLLM / DeepSeek), TTS (ElevenLabs / Coqui XTTS-v2 / text-only fallback), STT (faster-whisper), with a heuristic router that picks a small/large model per query complexity.
-
-See [docs/CHARACTER_BRAIN_IMPLEMENTATION_PLAN.md](docs/CHARACTER_BRAIN_IMPLEMENTATION_PLAN.md) for the full design writeup behind the multi-character memory/chunking system, including the trade-offs considered and rejected. The full documentation map is in [docs/README.md](docs/README.md).
-
-## Architecture
-
+```text
+Gateway -> Orchestrator -> AgentRegistry -> Agent -> ToolRegistry -> Guardrails -> Feedback
 ```
-Browser (React Three Fiber avatar)
-        │ WebSocket
-        ▼
-FastAPI /ws/chat
-        │
-        ▼
-Orchestrator ── sentence-buffering ──▶ TTS ──▶ Rhubarb lip-sync ──▶ WebSocket (audio + visemes)
-        │
-        ▼
-LangGraph pipeline
- ├─ retrieve_memories          (Chroma dense + BM25 sparse → RRF fusion, scoped per user+character)
- ├─ retrieve_character_context (character "brain" doc → parent/child chunk retrieval)
- ├─ build_prompt
- ├─ generate                   (Ollama / vLLM / DeepSeek, streamed)
- └─ store_memories             (fire-and-forget persist)
+
+## Production AI Engineering Highlights
+
+| Engineering Problem | Implementation |
+|---|---|
+| Keep user/character memories isolated | Metadata-scoped retrieval by `user_id` and `character_id`; Stage 7 derives `user_id` from auth/dev context instead of trusting the client payload. |
+| Recover exact facts that embeddings miss | Hybrid dense Chroma retrieval + sparse BM25 retrieval, fused with Reciprocal Rank Fusion. |
+| Make a slow LLM response feel immediate | Token streaming is bridged into sentence-level chunks so TTS/avatar output can start before the full response is complete. |
+| Avoid coupling orchestration to concrete services | Retrieval, memory persistence, speech, lip-sync, and STT are exposed through `ToolRegistry`. |
+| Add control and auditability | Input/output/tool guardrails, feedback events, ratings, trace summaries, smoke scripts, and regression tests. |
+| Move beyond prototype trust boundaries | WebSocket auth context, request size limits, rate limits, file-backed session history, `/ready`, and Postgres Compose wiring. |
+
+## Agent Platform Architecture
+
+```mermaid
+flowchart LR
+    Client["React + R3F Client"]
+    Gateway["Gateway\nREST / WebSocket\nAuth + normalization"]
+    Orchestrator["TurnOrchestrator\nStreaming lifecycle"]
+    Guardrails["Guardrails\nInput / output / tool policy"]
+    Registry["AgentRegistry"]
+    Agent["RoleplayChatAgent\nLangGraph"]
+    Tools["ToolRegistry\nRetrieval / memory / speech / lipsync"]
+    Feedback["Feedback\nEvents / ratings / traces"]
+    Stores["Stores\nChroma + BM25 + file history + Postgres config"]
+    Avatar["3D Avatar\nAudio + visemes + emotion"]
+
+    Client --> Gateway --> Orchestrator --> Guardrails --> Registry --> Agent --> Tools
+    Tools --> Stores
+    Tools --> Feedback
+    Orchestrator --> Feedback
+    Orchestrator --> Avatar
+```
+
+Runtime path:
+
+```text
+Client
+  -> Gateway (/ws/chat)
+  -> Auth context + request normalization
+  -> TurnOrchestrator
+  -> GuardrailPipeline.check_input()
+  -> AgentRegistry.select()
+  -> RoleplayChatAgent.stream()
+  -> LangGraph
+     -> retrieve_memory tool
+     -> retrieve_character_context tool
+     -> build_prompt
+     -> generate
+     -> persist_memory tool
+  -> output guardrail cleanup
+  -> synthesize_speech tool or text-only fallback
+  -> generate_visemes tool when audio exists
+  -> WebSocket audio_chunk/done/error
+  -> Feedback events and ratings
+```
+
+## Hybrid Retrieval And Relevance Evaluation
+
+The memory subsystem combines:
+- structured fact retrieval for exact identity facts
+- ChromaDB dense retrieval for semantic recall
+- BM25 sparse retrieval for keyword/name recall
+- Reciprocal Rank Fusion for result merging
+- cross-user and cross-character isolation checks
+
+Eval commands:
+
+```bash
+cd backend
+python scripts/eval_retrieval.py
+python scripts/eval_answer_quality.py
+```
+
+See [RAG Workflow](docs/architecture/RAG_WORKFLOW.md) and [Stage 5 Retrieval Metrics](docs/STAGE_5_RETRIEVAL_METRICS.md).
+
+## Guardrails And Feedback Loop
+
+Current controls:
+- empty/oversized input blocking
+- suspicious override pattern observation
+- per-agent tool allowlist
+- memory-scope checks
+- output cleanup
+- feedback event/rating JSONL store with redaction
+- trace summaries for latency, tool failures, guardrail blocks, and ratings
+
+See [Stage 4 Guardrails/Feedback Audit](docs/STAGE_4_ARCHITECTURE_AUDIT.md) and [Stage 6 Observability Report](docs/STAGE_6_OBSERVABILITY_REPORT.md).
+
+## Monitoring And Reliability
+
+The backend includes:
+- smoke scripts from Stage 1 through Stage 7
+- pytest coverage for routing, streaming, guardrails, tools, traces, and text-only orchestration
+- `/health` for basic health
+- `/ready` for app/LLM/vector/session-history/database/TTS readiness
+- graceful text-only fallback when TTS is unavailable
+- empty-viseme fallback when Rhubarb is unavailable
+
+Latest known backend result:
+
+```text
+15 passed
 ```
 
 ## Stack
@@ -52,22 +117,28 @@ LangGraph pipeline
 | Layer | Tech |
 |---|---|
 | Backend | FastAPI, WebSockets, asyncio, Pydantic v2 |
-| Orchestration | LangChain, LangGraph, LangSmith (optional tracing) |
-| Memory / RAG | ChromaDB (dense), BM25 (sparse), Ollama embeddings |
-| LLM | Ollama / vLLM (OpenAI-compatible) / DeepSeek |
-| TTS | ElevenLabs API / Coqui XTTS-v2 (local voice cloning) |
-| STT | faster-whisper |
+| Orchestration | LangChain, LangGraph, LangSmith optional tracing |
+| Agents/Tools | AgentRegistry, ToolRegistry, RoleplayChatAgent |
+| Memory/RAG | ChromaDB dense retrieval, BM25 sparse retrieval, RRF |
+| LLM | Ollama / vLLM OpenAI-compatible / DeepSeek |
+| TTS | ElevenLabs / Coqui XTTS-v2 / text-only fallback |
+| STT | faster-whisper, disabled-safe fallback |
 | Lip-sync | Rhubarb Lip-Sync |
-| Frontend | React, React Three Fiber, Three.js, zustand |
+| Frontend | React, TypeScript, Vite, React Three Fiber, Three.js, Zustand |
+| Production bridge | Postgres Compose service, file-backed session history, auth/rate-limit middleware |
 
-## Running locally
+## Running Locally
+
+Backend:
 
 ```bash
 cd backend
 pip install -r requirements.txt
-cp .env.example .env   # fill in provider keys/paths as needed
+cp .env.example .env
 uvicorn app.main:app --reload
 ```
+
+Frontend:
 
 ```bash
 cd frontend
@@ -75,64 +146,49 @@ npm install
 npm run dev
 ```
 
-Requires [Ollama](https://ollama.com) running locally (or a configured vLLM/DeepSeek endpoint) for the LLM + embedding model.
+Docker:
 
-### Baseline smoke checks
+```bash
+cp backend/.env.example backend/.env
+docker compose up --build
+docker compose exec ollama ollama pull llama3:8b
+docker compose exec ollama ollama pull nomic-embed-text
+```
 
-Stage 1 keeps the backend importable even when optional character brain/STT modules are unavailable. Run:
+## Smoke And Regression
 
 ```bash
 cd backend
-python -c "from app.main import app; print(app.title)"
 python scripts/smoke_baseline.py
 python scripts/smoke_stage2.py
 python scripts/smoke_stage3.py
 python scripts/smoke_stage4.py
 python scripts/smoke_stage5.py
 python scripts/smoke_stage6.py
-```
-
-Retrieval eval:
-
-```bash
-cd backend
-python scripts/eval_retrieval.py
-```
-
-CI-like backend regression:
-
-```bash
-cd backend
+python scripts/smoke_stage7.py
 python -m pytest -q
-python scripts/eval_retrieval.py
-python scripts/eval_answer_quality.py
 ```
 
-`/health` may report `status=degraded` if the configured LLM provider is not running. To smoke a live text-only WebSocket turn when Ollama/vLLM/DeepSeek is available:
+`/health` or `/ready` may report `degraded` when the configured LLM provider is not running. That means readiness is working, not that the endpoint failed.
 
-```powershell
-cd backend
-$env:SMOKE_WS_TURN="1"
-python scripts/smoke_baseline.py
-```
+## Demo And Portfolio Docs
 
-### Ingesting a character brain document
+- [Project Workflow](docs/architecture/WORKFLOW.md)
+- [RAG Workflow](docs/architecture/RAG_WORKFLOW.md)
+- [Portfolio Case Study](docs/PORTFOLIO_CASE_STUDY.md)
+- [Interview Prep](docs/INTERVIEW_PREP.md)
+- [AI Agent Platform Plan](docs/AI_AGENT_PLATFORM_WORKFLOW_IMPLEMENTATION_PLAN.md)
+- [Postgres Production Upgrade Plan](docs/POSTGRES_PRODUCTION_UPGRADE_PLAN.md)
 
-```bash
-cd backend
-python -m app.lore_ingest --character luna --file ../docs/characters/luna.md
-```
+## Known Gaps / Next Steps
 
-Character metadata (display name, voice, avatar) is registered in [docs/characters/characters.json](docs/characters/characters.json); the frontend can list available characters via `GET /api/characters`.
+- Postgres-backed feedback and audit logs.
+- Alembic migrations, refresh-token rotation, Postgres-backed feedback/audit logs.
+- Redis or another shared rate limiter for multi-process deployment.
+- Stronger answer verification/citation checking.
+- More robust sentence segmentation for decimals, abbreviations, and nested punctuation.
+- Stage beyond MVP: additional task/research/coding agents with planner/executor loops.
 
-## What's next
+## Positioning
 
-Honest gaps, tracked deliberately rather than hidden:
-
-- No automated RAG evaluation yet (no golden-set/RAGAS pipeline) — currently judged manually.
-- Sentence-boundary detection for TTS buffering is regex-based and doesn't yet handle decimals/abbreviations correctly.
-- Multi-character routing is backend-complete; the frontend character picker UI is the next piece to build.
-
-## Notes
-
-This is an active learning project, not a production system — issues above are next on the list, not blind spots.
+The project started as an interactive 3D chatbot, but the architecture now demonstrates a broader AI platform direction: explicit orchestration, retrieval quality, multimodal tool wrapping, guardrails, feedback loops, evaluation, and production hardening.

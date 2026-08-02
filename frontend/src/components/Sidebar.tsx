@@ -1,6 +1,7 @@
 import { useCallback, useState, useRef, useEffect } from 'react'
 import { useChatStore } from '../store/chatStore'
 import type { LlmProvider, Project, Session } from '../types'
+import { AuthPanel } from './AuthPanel'
 import {
   DndContext,
   useDraggable,
@@ -22,13 +23,13 @@ interface SidebarProps {
 function formatRelative(ts: number): string {
   const diff = Date.now() - ts
   const m = Math.floor(diff / 60000)
-  if (m < 1) return 'Vừa xong'
-  if (m < 60) return `${m} phút trước`
+  if (m < 1) return 'Just now'
+  if (m < 60) return `${m} min ago`
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h} giờ trước`
+  if (h < 24) return `${h} hr ago`
   const d = Math.floor(h / 24)
-  if (d === 1) return 'Hôm qua'
-  return `${d} ngày trước`
+  if (d === 1) return 'Yesterday'
+  return `${d} days ago`
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +253,7 @@ function DroppableProjectItem({
       {isExpanded && (
         <div style={s.projectContent}>
           {sessions.length === 0 && (
-            <div style={s.emptyProjectHint}>Kéo session vào đây</div>
+            <div style={s.emptyProjectHint}>Drop sessions here</div>
           )}
           {sessions.map((session) => (
             <DraggableSessionItem
@@ -339,7 +340,7 @@ export function Sidebar({ onNewSession, sendSetModel }: SidebarProps) {
   }, [])
 
   const handleCreateProject = () => {
-    const name = prompt('Tên project mới:')
+    const name = prompt('New project name:')
     if (name) createProject(name)
   }
 
@@ -404,6 +405,7 @@ export function Sidebar({ onNewSession, sendSetModel }: SidebarProps) {
       {/* ── Footer ─────────────────────────────────────── */}
       <div style={s.footer}>
         <div style={s.divider} />
+        <AuthPanel />
         <div style={s.footerRow}>
           <span style={s.footerLabel}>{ttsEnabled ? '🔊' : '🔇'} Voice</span>
           <Toggle checked={ttsEnabled} onChange={setTtsEnabled} />
@@ -462,14 +464,14 @@ function RecentDroppableArea({
       }}
     >
       <div style={s.sectionLabel}>Recent</div>
-      {sessions.length === 0 && <div style={s.emptyHint}>Chưa có hội thoại nào</div>}
+      {sessions.length === 0 && <div style={s.emptyHint}>No conversations yet</div>}
       {sessions.map((session) => {
         if (confirmId === session.id) {
           return (
             <div key={session.id} style={{ ...s.sessionItem, background: 'rgba(239,68,68,0.08)' }}>
-              <span style={{ fontSize: 12, color: '#f87171', flex: 1 }}>Xóa?</span>
-              <button onClick={(e) => onConfirmDelete(e, session.id)} style={s.confirmBtn}>Xóa</button>
-              <button onClick={onCancelDelete} style={s.cancelBtn}>Hủy</button>
+              <span style={{ fontSize: 12, color: '#f87171', flex: 1 }}>Delete?</span>
+              <button onClick={(e) => onConfirmDelete(e, session.id)} style={s.confirmBtn}>Delete</button>
+              <button onClick={onCancelDelete} style={s.cancelBtn}>Cancel</button>
             </div>
           )
         }

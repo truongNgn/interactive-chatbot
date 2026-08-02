@@ -16,11 +16,12 @@ This is the main documentation map for the project. The repository root keeps en
 ## Guides
 - [User Guide](guides/USER_GUIDE.md) - Installation, local/Docker startup, TTS configuration, and troubleshooting.
 - [Interview Prep](INTERVIEW_PREP.md) - Notes for explaining the project in interviews.
+- [Portfolio Case Study](PORTFOLIO_CASE_STUDY.md) - Interview-ready case study, demo flow, trade-offs, and production next steps.
 
 ## Active / Pending Plans
-- [AI Agent Platform Workflow Plan](AI_AGENT_PLATFORM_WORKFLOW_IMPLEMENTATION_PLAN.md) - Implemented through the Stage 7 MVP; full Postgres auth/conversation persistence and portfolio packaging remain pending.
+- [AI Agent Platform Workflow Plan](AI_AGENT_PLATFORM_WORKFLOW_IMPLEMENTATION_PLAN.md) - Implemented through the Stage 8 portfolio packaging pass; full Postgres auth/conversation persistence remains pending.
 - [Character Brain Implementation Plan](CHARACTER_BRAIN_IMPLEMENTATION_PLAN.md) - Partially scaffolded with character registry and lore retrieval contracts; full lore ingest/retrieval store remains pending.
-- [Postgres Production Upgrade Plan](POSTGRES_PRODUCTION_UPGRADE_PLAN.md) - Partially started via Postgres Compose wiring and file-backed session history; SQLAlchemy/Alembic auth/conversation schema remains pending.
+- [Postgres Production Upgrade Plan](POSTGRES_PRODUCTION_UPGRADE_PLAN.md) - Users/conversations/messages and frontend auth MVP are implemented; Alembic migrations, refresh tokens, feedback/audit tables, and shared rate limiting remain pending.
 
 ## Root Docs
 - [README](../README.md)

@@ -381,25 +381,23 @@ Implemented:
 - `/ready` endpoint with degraded/ready semantics
 
 Remaining:
-- real registration/login/password hashing
-- SQLAlchemy/Alembic schema for users, conversations, messages, feedback, audit logs
-- Postgres-backed conversation/message persistence
-- frontend token/login flow
+- Alembic migrations for production schema versioning
+- Postgres-backed feedback and audit logs
 - shared rate limiting for multi-process deployment
 
 Details: [STAGE_7_PRODUCTION_HARDENING_REPORT.md](STAGE_7_PRODUCTION_HARDENING_REPORT.md).
 
 ### Stage 8 - Portfolio And Interview Packaging
 
-Status: Pending.
+Status: Done on 2026-08-02.
 
-Work items:
-- update README, workflow docs, and case study
-- add architecture diagram
-- document production AI engineering highlights
-- document hybrid retrieval and evaluation
-- document guardrails, feedback, monitoring, reliability
-- prepare a five-minute demo script
+Delivered:
+- README repositioned the project as an AI Agent Platform.
+- Workflow and RAG architecture docs updated for the current Stage 7 runtime.
+- Portfolio case study added.
+- Interview prep rewritten around platform architecture, trade-offs, and demo flow.
+- Documentation index updated.
+- Production AI engineering highlights, hybrid retrieval, guardrails, feedback, monitoring, reliability, known gaps, and next steps documented.
 
 ## 5. Migration Strategy
 
@@ -436,6 +434,6 @@ Use adapters and feature flags instead of rewriting everything at once.
 - [x] Feedback events exist for turn lifecycle.
 - [x] User rating endpoint exists.
 - [x] Stage 7 MVP prevents trusting client-supplied `user_id`.
-- [ ] Full Postgres-backed users/conversations/messages.
-- [ ] Frontend auth flow.
-- [ ] Stage 8 portfolio packaging.
+- [x] Stage 8 portfolio packaging.
+- [x] Full Postgres-backed users/conversations/messages MVP.
+- [x] Frontend auth flow MVP.

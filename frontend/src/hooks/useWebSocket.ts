@@ -12,6 +12,7 @@ export function useWebSocket(onClearQueue?: () => void) {
   // Dùng ref để callback luôn là bản mới nhất mà không re-trigger useEffect/useCallback
   const onClearQueueRef = useRef(onClearQueue)
   onClearQueueRef.current = onClearQueue
+  const authToken = useChatStore((state) => state.authToken)
 
   const { setWsStatus, addMessage, enqueueAudio, clearQueue, setLlmProvider, setWarmupStatus } = useChatStore.getState()
 
@@ -19,7 +20,9 @@ export function useWebSocket(onClearQueue?: () => void) {
     if (!isMounted.current) return
 
     setWsStatus('connecting')
-    const ws = new WebSocket(WS_URL)
+    const token = useChatStore.getState().authToken
+    const url = token ? `${WS_URL}?token=${encodeURIComponent(token)}` : WS_URL
+    const ws = new WebSocket(url)
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -104,7 +107,7 @@ export function useWebSocket(onClearQueue?: () => void) {
       const ws = wsRef.current
       if (ws && ws.readyState !== WebSocket.CLOSED) ws.close()
     }
-  }, [connect])
+  }, [connect, authToken])
 
   const sendMessage = useCallback((text: string) => {
     const ws = wsRef.current

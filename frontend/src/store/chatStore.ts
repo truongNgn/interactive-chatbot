@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AudioChunkPayload, ChatMessage, Emotion, LlmProvider, Project, Session, WarmupStatus, WsStatus } from '../types'
+import type { AudioChunkPayload, AuthUser, ChatMessage, ConversationDetail, ConversationSummary, Emotion, LlmProvider, Project, Session, WarmupStatus, WsStatus } from '../types'
 
 const MAX_SESSIONS = 100 // Increased for better project management
 const SESSIONS_KEY = 'chatbot_sessions'
@@ -7,6 +7,9 @@ const PROJECTS_KEY = 'chatbot_projects'
 const TTS_KEY = 'chatbot_tts_enabled'
 const ROUTER_KEY = 'chatbot_router_enabled'
 const AUTO_SEND_VOICE_KEY = 'chatbot_auto_send_voice_transcript'
+const AUTH_TOKEN_KEY = 'chatbot_auth_token'
+const AUTH_USER_KEY = 'chatbot_auth_user'
+const API_BASE_URL = 'http://localhost:8000'
 
 function generateTitle(text: string): string {
   const words = text.trim().split(/\s+/).slice(0, 8).join(' ')
@@ -70,6 +73,47 @@ function loadAutoSendVoiceTranscript(): boolean {
   }
 }
 
+function loadAuthToken(): string {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function loadAuthUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem(AUTH_USER_KEY)
+    return raw ? (JSON.parse(raw) as AuthUser) : null
+  } catch {
+    return null
+  }
+}
+
+function saveAuth(token: string, user: AuthUser | null): void {
+  try {
+    if (token) localStorage.setItem(AUTH_TOKEN_KEY, token)
+    else localStorage.removeItem(AUTH_TOKEN_KEY)
+    if (user) localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user))
+    else localStorage.removeItem(AUTH_USER_KEY)
+  } catch {}
+}
+
+function mapConversation(detail: ConversationDetail): Session {
+  return {
+    id: detail.conversation.id,
+    title: detail.conversation.title || 'New Chat',
+    createdAt: detail.conversation.created_at * 1000,
+    messages: detail.messages.map((message) => ({
+      id: String(message.id),
+      role: message.role === 'human' ? 'user' : 'assistant',
+      text: message.content,
+      emotion: message.emotion ?? undefined,
+      turnId: message.turn_id ?? undefined,
+    })),
+  }
+}
+
 interface ChatState {
   // WebSocket
   wsStatus: WsStatus
@@ -108,6 +152,10 @@ interface ChatState {
 
   // User identity
   userId: string
+  authToken: string
+  authUser: AuthUser | null
+  authLoading: boolean
+  authError: string | null
 
   // Actions
   setWsStatus: (status: WsStatus) => void
@@ -125,6 +173,11 @@ interface ChatState {
   setRouterEnabled: (val: boolean) => void
   setAutoSendVoiceTranscript: (val: boolean) => void
   setWarmupStatus: (status: WarmupStatus | null) => void
+  setAuth: (token: string, user: AuthUser) => void
+  logout: () => void
+  login: (email: string, password: string) => Promise<boolean>
+  register: (email: string, password: string, displayName?: string) => Promise<boolean>
+  refreshServerConversations: () => Promise<void>
 
   // Session actions
   createNewSession: () => string    // returns new sessionId
@@ -171,6 +224,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!id) { id = crypto.randomUUID(); localStorage.setItem('chat_user_id', id) }
     return id
   })(),
+  authToken: loadAuthToken(),
+  authUser: loadAuthUser(),
+  authLoading: false,
+  authError: null,
 
   setWsStatus: (status) => set({ wsStatus: status }),
 
@@ -229,6 +286,97 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setWarmupStatus: (status) => set({ warmupStatus: status }),
+
+  setAuth: (token, user) => {
+    saveAuth(token, user)
+    set({ authToken: token, authUser: user, userId: user.id, authError: null })
+    try { localStorage.setItem('chat_user_id', user.id) } catch {}
+  },
+
+  logout: () => {
+    saveAuth('', null)
+    const id = crypto.randomUUID()
+    try { localStorage.setItem('chat_user_id', id) } catch {}
+    set({
+      authToken: '',
+      authUser: null,
+      userId: id,
+      messages: [],
+      sessions: [],
+      activeSessionId: crypto.randomUUID(),
+      authError: null,
+    })
+    saveSessions([])
+  },
+
+  login: async (email, password) => {
+    set({ authLoading: true, authError: null })
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      if (!response.ok) throw new Error(await response.text())
+      const payload = await response.json()
+      get().setAuth(payload.access_token, payload.user)
+      await get().refreshServerConversations()
+      return true
+    } catch (error) {
+      set({ authError: error instanceof Error ? error.message : 'Login failed' })
+      return false
+    } finally {
+      set({ authLoading: false })
+    }
+  },
+
+  register: async (email, password, displayName) => {
+    set({ authLoading: true, authError: null })
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, display_name: displayName || null }),
+      })
+      if (!response.ok) throw new Error(await response.text())
+      const payload = await response.json()
+      get().setAuth(payload.access_token, payload.user)
+      await get().refreshServerConversations()
+      return true
+    } catch (error) {
+      set({ authError: error instanceof Error ? error.message : 'Registration failed' })
+      return false
+    } finally {
+      set({ authLoading: false })
+    }
+  },
+
+  refreshServerConversations: async () => {
+    const token = get().authToken
+    if (!token) return
+    const headers = { Authorization: `Bearer ${token}` }
+    const response = await fetch(`${API_BASE_URL}/api/conversations`, { headers })
+    if (!response.ok) return
+    const payload = (await response.json()) as { conversations: ConversationSummary[] }
+    const details = await Promise.all(
+      payload.conversations.map(async (conversation) => {
+        const detailResponse = await fetch(`${API_BASE_URL}/api/conversations/${conversation.id}`, { headers })
+        if (!detailResponse.ok) return null
+        return (await detailResponse.json()) as ConversationDetail
+      }),
+    )
+    const serverSessions = details
+      .filter((item): item is ConversationDetail => item !== null)
+      .map(mapConversation)
+      .sort((a, b) => b.createdAt - a.createdAt)
+    saveSessions(serverSessions)
+    const active = serverSessions[0]
+    set({
+      sessions: serverSessions,
+      activeSessionId: active?.id ?? get().activeSessionId,
+      messages: active?.messages ?? get().messages,
+    })
+  },
 
   createNewSession: () => {
     const newId = crypto.randomUUID()
