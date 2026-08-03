@@ -87,8 +87,12 @@ class TurnOrchestrator:
 
         try:
             while True:
+                if tts_queue.empty():
+                    await _raise_if_failed(producer)
+
                 item = await tts_queue.get()
                 if item is None:
+                    await _raise_if_failed(producer)
                     break
 
                 chunk, tts_task = item
@@ -269,6 +273,14 @@ class TurnOrchestrator:
 
 async def _empty_audio() -> bytes:
     return b""
+
+
+async def _raise_if_failed(task: asyncio.Task) -> None:
+    if not task.done() or task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        raise exc
 
 
 def _request_context(request: ChatRequest) -> AgentContext:

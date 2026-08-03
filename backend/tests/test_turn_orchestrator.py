@@ -4,7 +4,7 @@ import json
 from app.gateway.schemas import ChatRequest
 from app.models import Emotion, SentenceChunk
 from app.orchestrator.turn_orchestrator import TurnOrchestrator
-from app.tts_handler import BaseTTSHandler
+from app.tts_handler import BaseTTSHandler, FallbackTTSHandler
 
 
 class FakeProducer:
@@ -38,6 +38,16 @@ class FakeTTS(BaseTTSHandler):
         return b""
 
 
+class FailingTTS(BaseTTSHandler):
+    async def synthesize(self, chunk: SentenceChunk) -> bytes:
+        raise RuntimeError("boom")
+
+
+class BytesTTS(BaseTTSHandler):
+    async def synthesize(self, chunk: SentenceChunk) -> bytes:
+        return b"audio"
+
+
 class Sink:
     def __init__(self) -> None:
         self.messages: list[dict] = []
@@ -66,3 +76,12 @@ def test_turn_orchestrator_text_only_turn() -> None:
     assert messages[0]["type"] == "audio_chunk"
     assert messages[0]["turn_id"] == "turn-test"
     assert messages[-1]["type"] == "done"
+
+
+def test_fallback_tts_handler_uses_secondary_when_primary_fails() -> None:
+    async def run() -> bytes:
+        handler = FallbackTTSHandler(FailingTTS(), BytesTTS())
+        return await handler.synthesize(SentenceChunk(text="Hello.", emotion=Emotion.neutral))
+
+    audio = asyncio.run(run())
+    assert audio == b"audio"

@@ -96,6 +96,10 @@ _EMOTION_VOICE_SETTINGS: dict[Emotion, VoiceSettings] = {
 # ---------------------------------------------------------------------------
 
 class BaseTTSHandler(ABC):
+    @property
+    def provider_name(self) -> str:
+        return "unknown"
+
     @abstractmethod
     async def synthesize(self, chunk: SentenceChunk) -> bytes:
         """Chuyển SentenceChunk → audio bytes. Trả về b'' nếu không có audio."""
@@ -114,6 +118,10 @@ class BaseTTSHandler(ABC):
 # ---------------------------------------------------------------------------
 
 class ElevenLabsTTSHandler(BaseTTSHandler):
+    @property
+    def provider_name(self) -> str:
+        return "elevenlabs"
+
     def __init__(self) -> None:
         if AsyncElevenLabs is None:
             raise RuntimeError("ElevenLabs SDK is unavailable.")
@@ -164,6 +172,10 @@ class ElevenLabsTTSHandler(BaseTTSHandler):
 @lru_cache(maxsize=1)
 def _load_xtts_model(model_name: str):
     """Load XTTS model một lần duy nhất, cache lại để dùng lại."""
+    # Avoid Coqui's interactive license prompt in local/dev server processes.
+    import os
+    os.environ.setdefault("COQUI_TOS_AGREED", "1")
+
     try:
         torch = import_module("torch")
         logger.info("PyTorch %s | CUDA available: %s", torch.__version__, torch.cuda.is_available())
@@ -189,10 +201,6 @@ def _load_xtts_model(model_name: str):
         logger.error("TTS import failed: %s", exc, exc_info=True)
         raise RuntimeError(f"Không thể import TTS: {exc}") from exc
 
-    # Auto-accept Coqui non-commercial license (CPML) — bỏ interactive prompt
-    import os
-    os.environ["COQUI_TOS_AGREED"] = "1"
-
     logger.info("Loading XTTS model '%s' — lần đầu sẽ tải về (~2GB)...", model_name)
     use_gpu = torch.cuda.is_available()
     logger.info("XTTS using %s", "GPU" if use_gpu else "CPU")
@@ -216,6 +224,10 @@ class CoquiXTTSHandler(BaseTTSHandler):
         self._tts = None          # lazy — chưa load lúc khởi tạo
         # max_workers=1: XTTS model không thread-safe, chỉ cho phép 1 synthesis tại một thời điểm
         self._executor = ThreadPoolExecutor(max_workers=1)
+
+    @property
+    def provider_name(self) -> str:
+        return "xtts"
 
     def _get_tts(self):
         """Load model lần đầu tiên khi cần, cache lại cho các lần sau."""
@@ -292,9 +304,52 @@ class NoOpTTSHandler(BaseTTSHandler):
     def is_active(self) -> bool:
         return False
 
+    @property
+    def provider_name(self) -> str:
+        return "none"
+
     async def synthesize(self, chunk: SentenceChunk) -> bytes:
         logger.debug("NoOpTTS: no audio for %r", chunk.text[:40])
         return b""
+
+
+class FallbackTTSHandler(BaseTTSHandler):
+    """Ưu tiên primary, tự động fallback sang secondary khi primary lỗi."""
+
+    def __init__(self, primary: BaseTTSHandler, secondary: BaseTTSHandler) -> None:
+        self._primary = primary
+        self._secondary = secondary
+
+    @property
+    def is_active(self) -> bool:
+        return self._primary.is_active or self._secondary.is_active
+
+    @property
+    def provider_name(self) -> str:
+        return f"{self._primary.provider_name}+fallback:{self._secondary.provider_name}"
+
+    async def synthesize(self, chunk: SentenceChunk) -> bytes:
+        try:
+            return await self._primary.synthesize(chunk)
+        except Exception as exc:
+            logger.warning(
+                "Primary TTS provider '%s' failed; retrying with '%s': %s",
+                self._primary.provider_name,
+                self._secondary.provider_name,
+                exc,
+            )
+            return await self._secondary.synthesize(chunk)
+
+    async def warmup(self) -> None:
+        try:
+            await self._primary.warmup()
+        except Exception as exc:
+            logger.warning("Primary TTS warmup failed (non-fatal): %s", exc)
+
+        try:
+            await self._secondary.warmup()
+        except Exception as exc:
+            logger.warning("Fallback TTS warmup failed (non-fatal): %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -302,31 +357,44 @@ class NoOpTTSHandler(BaseTTSHandler):
 # ---------------------------------------------------------------------------
 
 def get_tts_handler() -> BaseTTSHandler:
-    if settings.elevenlabs_api_key:
-        if AsyncElevenLabs is None:
-            logger.error("ELEVENLABS_API_KEY is set, but ElevenLabs SDK is unavailable; fallback text-only.")
-            return NoOpTTSHandler()
-        logger.info("TTS: ElevenLabs (voice=%s, model=%s)", settings.elevenlabs_voice_id, settings.elevenlabs_model_id)
-        return ElevenLabsTTSHandler()
-
+    xtts_handler: BaseTTSHandler | None = None
     if settings.xtts_speaker_wav:
         import os
         if not os.path.isfile(settings.xtts_speaker_wav):
             logger.error(
-                "XTTS_SPEAKER_WAV '%s' không tồn tại — fallback text-only.",
+                "XTTS_SPEAKER_WAV '%s' không tồn tại — local XTTS disabled.",
                 settings.xtts_speaker_wav,
             )
+        else:
+            logger.info(
+                "TTS: Coqui XTTS-v2 | speaker_wav=%s | language=%s",
+                settings.xtts_speaker_wav,
+                settings.xtts_language,
+            )
+            xtts_handler = CoquiXTTSHandler(
+                speaker_wav=settings.xtts_speaker_wav,
+                language=settings.xtts_language,
+                model_name=settings.xtts_model_name,
+            )
+
+    if settings.elevenlabs_api_key:
+        if AsyncElevenLabs is None:
+            logger.error("ELEVENLABS_API_KEY is set, but ElevenLabs SDK is unavailable.")
+            if xtts_handler is not None:
+                logger.info("TTS: falling back to local XTTS because ElevenLabs SDK is unavailable.")
+                return xtts_handler
+            logger.error("No local XTTS fallback available; running text-only.")
             return NoOpTTSHandler()
-        logger.info(
-            "TTS: Coqui XTTS-v2 | speaker_wav=%s | language=%s",
-            settings.xtts_speaker_wav,
-            settings.xtts_language,
-        )
-        return CoquiXTTSHandler(
-            speaker_wav=settings.xtts_speaker_wav,
-            language=settings.xtts_language,
-            model_name=settings.xtts_model_name,
-        )
+
+        logger.info("TTS: ElevenLabs (voice=%s, model=%s)", settings.elevenlabs_voice_id, settings.elevenlabs_model_id)
+        elevenlabs_handler = ElevenLabsTTSHandler()
+        if xtts_handler is not None:
+            logger.info("TTS: local XTTS fallback is enabled if ElevenLabs fails.")
+            return FallbackTTSHandler(primary=elevenlabs_handler, secondary=xtts_handler)
+        return elevenlabs_handler
+
+    if xtts_handler is not None:
+        return xtts_handler
 
     logger.warning("Không có TTS nào được cấu hình — running in text-only mode.")
     return NoOpTTSHandler()

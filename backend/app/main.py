@@ -50,10 +50,12 @@ async def lifespan(app: FastAPI):
     # accept WebSocket connections immediately after the process starts.
     tts = get_tts_handler()
     if tts.is_active:
-        if settings.elevenlabs_api_key:
-            logger.info("TTS: ElevenLabs ready (voice=%s).", settings.elevenlabs_voice_id)
-        else:
+        if tts.provider_name.startswith("elevenlabs"):
+            logger.info("TTS: %s ready (voice=%s).", tts.provider_name, settings.elevenlabs_voice_id)
+        elif tts.provider_name == "xtts":
             logger.info("TTS: Coqui XTTS-v2 configured; background warmup will preload it.")
+        else:
+            logger.info("TTS: %s ready.", tts.provider_name)
     else:
         logger.warning("TTS: Running in text-only mode.")
 
@@ -109,11 +111,7 @@ async def health():
         "llm": {"provider": settings.llm_provider, "ready": llm_ok},
         "warmup": warmup_state.to_dict(),
         "tts": {
-            "provider": (
-                "elevenlabs" if settings.elevenlabs_api_key
-                else "xtts" if settings.xtts_speaker_wav
-                else "none"
-            ),
+            "provider": tts.provider_name,
             "ready": tts.is_active,
         },
         "stt": {
@@ -150,7 +148,7 @@ async def readiness():
             "configured": bool(settings.database_url),
             "ready": database_ok,
         },
-        "tts": {"ready": tts.is_active},
+        "tts": {"provider": tts.provider_name, "ready": tts.is_active},
         "warmup": warmup_state.to_dict(),
     }
 
