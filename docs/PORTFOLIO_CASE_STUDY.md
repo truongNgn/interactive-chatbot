@@ -1,4 +1,4 @@
-# Portfolio Case Study - Interactive 3D AI Agent Platform
+# Portfolio Case Study - Persona Graph AI (Interactive 3D AI Agent Platform)
 
 ## Problem
 

@@ -1,4 +1,4 @@
-# Interactive 3D AI Agent Platform
+# Persona Graph AI — Real-Time Multimodal AI Agent Platform
 
 An async FastAPI + WebSocket AI platform that powers a real-time 3D companion experience. The system combines LangGraph orchestration, hybrid Chroma + BM25 memory retrieval, tool-wrapped multimodal services, guardrails, feedback events, production-hardening boundaries, and a React Three Fiber avatar driven by audio, emotion, and viseme payloads.
 
@@ -18,6 +18,21 @@ Gateway -> Orchestrator -> AgentRegistry -> Agent -> ToolRegistry -> Guardrails 
 | Avoid coupling orchestration to concrete services | Retrieval, memory persistence, speech, lip-sync, and STT are exposed through `ToolRegistry`. |
 | Add control and auditability | Input/output/tool guardrails, feedback events, ratings, trace summaries, smoke scripts, and regression tests. |
 | Move beyond prototype trust boundaries | WebSocket auth context, request size limits, rate limits, file-backed session history, `/ready`, and Postgres Compose wiring. |
+
+## Workflow Diagram
+
+![AI Agent Platform Runtime Workflow](diagrams/workflow-ai-agent-platform.svg)
+
+The diagram traces one request end to end across six layers:
+
+1. **Gateway + Request Control** — Frontend client (chat UI, VAD, session) -> FastAPI gateway (REST + WebSocket) -> Auth (JWT, rate limits, payload size) -> payload normalization (session, TTS flag, text) -> readiness/health checks.
+2. **Agent Orchestration** — `TurnOrchestrator` (input guardrail, routing) -> `AgentRegistry` (select roleplay agent) -> `RoleplayChatAgent` (stream LLM response) -> `ToolRegistry` (retrieval, speech, lip-sync) -> LangGraph (retrieve -> prompt -> generate).
+3. **Retrieval + Memory** — query rewrite/routing -> hybrid RAG (Chroma + BM25) -> RRF ranker fuses results -> long-term memory (facts, lore, session history).
+4. **Speech + Avatar** — TTS (ElevenLabs / XTTS) -> lip-sync (visemes + emotion) -> audio and avatar payloads streamed back to the client.
+5. **Reliability + Control** — guardrails (input/output/tool), timeouts (warmup, ready, retry), fallbacks (text-only when TTS fails), conversation persistence, feedback events (ratings + traces).
+6. **Observability + Data Stores** — Postgres, session files, Chroma vector DB, logs/evals/feedback.
+
+Users/channels (Web, Mobile, API, Slack/Teams adapters) enter through the gateway; responses come back as streamed text, audio chunks, 3D avatar visemes/emotion, or API payloads.
 
 ## Agent Platform Architecture
 
