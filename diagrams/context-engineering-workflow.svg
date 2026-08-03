@@ -1,0 +1,279 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-labelledby="title desc">
+  <title id="title">Interactive 3D Chatbot Workflow Architecture</title>
+  <desc id="desc">Sequential workflow architecture for the current Interactive 3D Chatbot project, with numbered steps and non-overlapping colorful icons.</desc>
+  <defs>
+    <filter id="shadow" x="-8%" y="-10%" width="116%" height="130%">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#0F172A" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrow-blue" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L14,7 L0,14 Z" fill="#2563EB"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L14,7 L0,14 Z" fill="#059669"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L14,7 L0,14 Z" fill="#F97316"/>
+    </marker>
+    <style>
+      .bg { fill: #FFFFFF; }
+      .title { font-family: Inter, Arial, sans-serif; font-size: 48px; font-weight: 800; fill: #08143D; text-anchor: middle; }
+      .subtitle { font-family: Inter, Arial, sans-serif; font-size: 18px; font-weight: 600; fill: #24335F; text-anchor: middle; }
+      .lane-title { font-family: Inter, Arial, sans-serif; font-size: 22px; font-weight: 800; text-anchor: middle; }
+      .node-title { font-family: Inter, Arial, sans-serif; font-size: 18px; font-weight: 800; fill: #111827; text-anchor: middle; }
+      .node-sub { font-family: Inter, Arial, sans-serif; font-size: 13px; font-weight: 600; fill: #475569; text-anchor: middle; }
+      .step-label { font-family: Inter, Arial, sans-serif; font-size: 16px; font-weight: 800; fill: #FFFFFF; text-anchor: middle; dominant-baseline: middle; }
+      .flow-label { font-family: Inter, Arial, sans-serif; font-size: 14px; font-weight: 700; fill: #1E3A8A; text-anchor: middle; paint-order: stroke; stroke: #FFFFFF; stroke-width: 6; stroke-linejoin: round; }
+      .legend { font-family: Inter, Arial, sans-serif; font-size: 15px; font-weight: 700; fill: #FFFFFF; }
+      .lane-blue { fill: #EFF6FF; stroke: #BFDBFE; stroke-width: 2; }
+      .lane-purple { fill: #F5F3FF; stroke: #C4B5FD; stroke-width: 2; }
+      .lane-green { fill: #ECFDF5; stroke: #A7F3D0; stroke-width: 2; }
+      .lane-orange { fill: #FFF7ED; stroke: #FED7AA; stroke-width: 2; }
+      .card { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 2; filter: url(#shadow); }
+      .icon { fill: none; stroke: #0F172A; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .blue-flow { fill: none; stroke: #2563EB; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-blue); }
+      .green-flow { fill: none; stroke: #059669; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-green); }
+      .orange-flow { fill: none; stroke: #F97316; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-orange); }
+      .dash-blue { stroke-dasharray: 10 9; }
+      .dash-green { stroke-dasharray: 10 9; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1920" height="1080"/>
+  <text class="title" x="960" y="58">Interactive 3D Chatbot Workflow Architecture</text>
+  <text class="subtitle" x="960" y="88">Numbered execution flow based on the features currently implemented in this project</text>
+
+  <rect class="lane-blue" x="60" y="122" width="1800" height="200" rx="18"/>
+  <text class="lane-title" x="960" y="153" fill="#1D4ED8">1. Client Experience</text>
+
+  <rect class="lane-purple" x="60" y="360" width="1800" height="224" rx="18"/>
+  <text class="lane-title" x="960" y="391" fill="#5B21B6">2. Backend Gateway And Orchestration</text>
+
+  <rect class="lane-green" x="60" y="622" width="1800" height="200" rx="18"/>
+  <text class="lane-title" x="960" y="653" fill="#047857">3. Memory, Models, Speech, And Persistence</text>
+
+  <rect class="lane-orange" x="60" y="858" width="1800" height="116" rx="18"/>
+  <text class="lane-title" x="960" y="890" fill="#C2410C">4. Streaming Response And Feedback Loop</text>
+
+  <g id="n1" transform="translate(130 176)">
+    <rect class="card" width="260" height="116" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#2563EB"/>
+    <text class="step-label" x="31" y="31">1</text>
+    <rect x="84" y="20" width="54" height="35" rx="4" fill="#DBEAFE" stroke="#2563EB" stroke-width="3"/>
+    <path d="M95 66h32 M111 55v11" stroke="#2563EB" stroke-width="4" stroke-linecap="round"/>
+    <text class="node-title" x="130" y="82">React Chat UI</text>
+    <text class="node-sub" x="130" y="103">sessions, projects, controls</text>
+  </g>
+
+  <g id="n2" transform="translate(465 176)">
+    <rect class="card" width="260" height="116" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#2563EB"/>
+    <text class="step-label" x="31" y="31">2</text>
+    <circle cx="113" cy="36" r="25" fill="#EDE9FE" stroke="#7C3AED" stroke-width="3"/>
+    <path d="M92 70c11-22 31-22 42 0" fill="none" stroke="#7C3AED" stroke-width="4" stroke-linecap="round"/>
+    <text class="node-title" x="130" y="82">3D Avatar Scene</text>
+    <text class="node-sub" x="130" y="103">R3F, Three.js, morph targets</text>
+  </g>
+
+  <g id="n3" transform="translate(800 176)">
+    <rect class="card" width="260" height="116" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#2563EB"/>
+    <text class="step-label" x="31" y="31">3</text>
+    <path d="M84 43h20l27-22v62l-27-22H84z" fill="#22C55E" stroke="#0F172A" stroke-width="2.5"/>
+    <path d="M148 31c10 10 10 26 0 36 M166 22c17 21 17 54 0 76" fill="none" stroke="#16A34A" stroke-width="4" stroke-linecap="round"/>
+    <text class="node-title" x="130" y="82">Audio And VAD</text>
+    <text class="node-sub" x="130" y="103">queue, playback, interruption</text>
+  </g>
+
+  <g id="n4" transform="translate(1135 176)">
+    <rect class="card" width="260" height="116" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#2563EB"/>
+    <text class="step-label" x="31" y="31">4</text>
+    <path d="M88 37h78 M88 62h78" stroke="#F97316" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="113" cy="37" r="10" fill="#F97316"/>
+    <circle cx="145" cy="62" r="10" fill="#EC4899"/>
+    <text class="node-title" x="130" y="82">Runtime Controls</text>
+    <text class="node-sub" x="130" y="103">model, voice, TTS toggle</text>
+  </g>
+
+  <g id="n5" transform="translate(1470 176)">
+    <rect class="card" width="260" height="116" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#2563EB"/>
+    <text class="step-label" x="31" y="31">5</text>
+    <path d="M93 67h70c17 0 20-28 3-33C157 17 131 20 124 37 110 27 93 37 96 53 82 56 82 67 93 67z" fill="#EFF6FF" stroke="#2563EB" stroke-width="3"/>
+    <text class="node-title" x="130" y="82">API Clients</text>
+    <text class="node-sub" x="130" y="103">REST and WebSocket callers</text>
+  </g>
+
+  <g id="n6" transform="translate(130 430)">
+    <rect class="card" width="250" height="120" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#7C3AED"/>
+    <text class="step-label" x="31" y="31">6</text>
+    <path d="M86 34h56v36H86z M142 44h24 M142 60h24 M101 83h28" fill="#DBEAFE" stroke="#2563EB" stroke-width="3" stroke-linecap="round"/>
+    <text class="node-title" x="125" y="86">FastAPI Gateway</text>
+    <text class="node-sub" x="125" y="107">/ws/chat, REST routes</text>
+  </g>
+
+  <g id="n7" transform="translate(440 430)">
+    <rect class="card" width="250" height="120" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#7C3AED"/>
+    <text class="step-label" x="31" y="31">7</text>
+    <path d="M125 25c-17 0-28 12-28 29v8h56v-8c0-17-11-29-28-29z" fill="#FDE68A" stroke="#0F172A" stroke-width="2.5"/>
+    <rect x="108" y="60" width="34" height="28" rx="5" fill="#F59E0B"/>
+    <text class="node-title" x="125" y="86">Auth And Limits</text>
+    <text class="node-sub" x="125" y="107">JWT, user scope, rate limits</text>
+  </g>
+
+  <g id="n8" transform="translate(750 430)">
+    <rect class="card" width="250" height="120" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#7C3AED"/>
+    <text class="step-label" x="31" y="31">8</text>
+    <path d="M92 28h58l18 18v42H92z" fill="#CCFBF1" stroke="#0D9488" stroke-width="3"/>
+    <path d="M150 28v18h18 M107 58h42 M107 73h32" stroke="#0D9488" stroke-width="3" stroke-linecap="round"/>
+    <text class="node-title" x="125" y="86">Payload Validation</text>
+    <text class="node-sub" x="125" y="107">typed request normalization</text>
+  </g>
+
+  <g id="n9" transform="translate(1060 430)">
+    <rect class="card" width="250" height="120" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#7C3AED"/>
+    <text class="step-label" x="31" y="31">9</text>
+    <path d="M82 63h30 M112 63l24-27 M112 63l24 27 M136 36h34 M136 90h34" fill="none" stroke="#7C3AED" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="node-title" x="125" y="86">TurnOrchestrator</text>
+    <text class="node-sub" x="125" y="107">streaming turn control</text>
+  </g>
+
+  <g id="n10" transform="translate(1370 430)">
+    <rect class="card" width="250" height="120" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#7C3AED"/>
+    <text class="step-label" x="31" y="31">10</text>
+    <path d="M125 25l38 14v28c0 21-16 36-38 44-22-8-38-23-38-44V39z" fill="#D1FAE5" stroke="#0D9488" stroke-width="3"/>
+    <path d="M106 63l13 13 27-31" fill="none" stroke="#0D9488" stroke-width="5" stroke-linecap="round"/>
+    <text class="node-title" x="125" y="86">Guardrails</text>
+    <text class="node-sub" x="125" y="107">input, tool, output checks</text>
+  </g>
+
+  <g id="n11" transform="translate(215 682)">
+    <rect class="card" width="250" height="116" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#059669"/>
+    <text class="step-label" x="31" y="31">11</text>
+    <rect x="93" y="34" width="28" height="28" rx="5" fill="#EDE9FE" stroke="#7C3AED" stroke-width="3"/>
+    <rect x="139" y="23" width="28" height="28" rx="5" fill="#DBEAFE" stroke="#2563EB" stroke-width="3"/>
+    <rect x="139" y="67" width="28" height="28" rx="5" fill="#FEF3C7" stroke="#F59E0B" stroke-width="3"/>
+    <path d="M121 48l18-11 M121 48l18 33" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+    <text class="node-title" x="125" y="82">LangGraph Runtime</text>
+    <text class="node-sub" x="125" y="103">retrieve, prompt, generate</text>
+  </g>
+
+  <g id="n12" transform="translate(525 682)">
+    <rect class="card" width="250" height="116" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#059669"/>
+    <text class="step-label" x="31" y="31">12</text>
+    <path d="M83 38c0-12 70-12 70 0v36c0 12-70 12-70 0z M83 51c0 12 70 12 70 0 M83 64c0 12 70 12 70 0" fill="#DBEAFE" stroke="#2563EB" stroke-width="3"/>
+    <text class="node-title" x="125" y="82">Hybrid Retrieval</text>
+    <text class="node-sub" x="125" y="103">Chroma, BM25, RRF memory</text>
+  </g>
+
+  <g id="n13" transform="translate(835 682)">
+    <rect class="card" width="250" height="116" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#059669"/>
+    <text class="step-label" x="31" y="31">13</text>
+    <path d="M87 58c0-26 58-26 58 0s-58 26-58 0 M145 58h50 M171 38l24 20-24 20" fill="none" stroke="#7C3AED" stroke-width="4" stroke-linecap="round"/>
+    <text class="node-title" x="125" y="82">LLM Providers</text>
+    <text class="node-sub" x="125" y="103">Ollama, vLLM, DeepSeek</text>
+  </g>
+
+  <g id="n14" transform="translate(1145 682)">
+    <rect class="card" width="250" height="116" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#059669"/>
+    <text class="step-label" x="31" y="31">14</text>
+    <path d="M78 55h22l28-23v64l-28-23H78z" fill="#F97316" stroke="#0F172A" stroke-width="2.5"/>
+    <path d="M147 43c9 9 9 24 0 33 M165 34c16 19 16 52 0 72" fill="none" stroke="#F97316" stroke-width="4" stroke-linecap="round"/>
+    <text class="node-title" x="125" y="82">Speech Providers</text>
+    <text class="node-sub" x="125" y="103">ElevenLabs, Coqui, fallback</text>
+  </g>
+
+  <g id="n15" transform="translate(1455 682)">
+    <rect class="card" width="250" height="116" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#059669"/>
+    <text class="step-label" x="31" y="31">15</text>
+    <path d="M88 38c0-12 74-12 74 0v40c0 12-74 12-74 0z M88 51c0 12 74 12 74 0 M88 65c0 12 74 12 74 0" fill="#FEF3C7" stroke="#F59E0B" stroke-width="3"/>
+    <text class="node-title" x="125" y="82">Postgres Store</text>
+    <text class="node-sub" x="125" y="103">users, conversations, messages</text>
+  </g>
+
+  <g id="n16" transform="translate(390 910)">
+    <rect class="card" width="290" height="88" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#F97316"/>
+    <text class="step-label" x="31" y="31">16</text>
+    <path d="M100 28h26l32-25v70l-32-25h-26z" fill="#22C55E" stroke="#0F172A" stroke-width="2.5"/>
+    <text class="node-title" x="178" y="38">Stream Response</text>
+    <text class="node-sub" x="178" y="61">text, audio chunks, visemes</text>
+  </g>
+
+  <g id="n17" transform="translate(815 910)">
+    <rect class="card" width="290" height="88" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#F97316"/>
+    <text class="step-label" x="31" y="31">17</text>
+    <path d="M95 68V29 M122 68V43 M149 68V22 M176 68V52 M91 68h92" fill="none" stroke="#2563EB" stroke-width="4" stroke-linecap="round"/>
+    <text class="node-title" x="183" y="38">Feedback And Evals</text>
+    <text class="node-sub" x="183" y="61">logs, metrics, readiness</text>
+  </g>
+
+  <g id="n18" transform="translate(1240 910)">
+    <rect class="card" width="290" height="88" rx="14"/>
+    <circle cx="31" cy="31" r="18" fill="#F97316"/>
+    <text class="step-label" x="31" y="31">18</text>
+    <path d="M99 37h58 M99 56h58 M183 47c0 24-25 39-47 28" fill="none" stroke="#F97316" stroke-width="4" stroke-linecap="round"/>
+    <path d="M141 88l-10-14 17-5" fill="#F97316"/>
+    <text class="node-title" x="186" y="38">Memory Writeback</text>
+    <text class="node-sub" x="186" y="61">facts and session history</text>
+  </g>
+
+  <g id="main-flow">
+    <path class="blue-flow" d="M390 234 H465"/>
+    <path class="blue-flow" d="M725 234 H800"/>
+    <path class="blue-flow" d="M1060 234 H1135"/>
+    <path class="blue-flow" d="M1395 234 H1470"/>
+    <path class="blue-flow" d="M1600 292 V350 H255 V430"/>
+    <text class="flow-label" x="960" y="344">client message + selected runtime options</text>
+
+    <path class="blue-flow" d="M380 490 H440"/>
+    <path class="blue-flow" d="M690 490 H750"/>
+    <path class="blue-flow" d="M1000 490 H1060"/>
+    <path class="blue-flow" d="M1310 490 H1370"/>
+    <path class="green-flow dash-green" d="M1495 550 V612 H340 V682"/>
+    <text class="flow-label" x="920" y="604">validated turn enters agent graph</text>
+
+    <path class="green-flow" d="M465 740 H525"/>
+    <path class="green-flow" d="M775 740 H835"/>
+    <path class="green-flow" d="M1085 740 H1145"/>
+    <path class="green-flow" d="M1395 740 H1455"/>
+    <path class="orange-flow" d="M1580 798 V846 H535 V910"/>
+    <text class="flow-label" x="960" y="840" fill="#9A3412">generated answer, persistence, and speech output</text>
+
+    <path class="orange-flow" d="M680 954 H815"/>
+    <path class="orange-flow" d="M1105 954 H1240"/>
+    <path class="orange-flow" d="M1530 954 H1775 V178 H1730"/>
+    <text class="flow-label" x="1742" y="616" fill="#9A3412" transform="rotate(-90 1742 616)">response returns to UI</text>
+  </g>
+
+  <g id="side-flows">
+    <path class="green-flow dash-green" d="M1185 550 V622"/>
+    <text class="flow-label" x="1250" y="594">tools</text>
+    <path class="green-flow dash-green" d="M650 682 V614 H1185 V550"/>
+    <text class="flow-label" x="900" y="632">retrieved memory context</text>
+    <path class="orange-flow" d="M1270 798 V910"/>
+    <text class="flow-label" x="1336" y="862" fill="#9A3412">TTS when enabled</text>
+  </g>
+
+  <g id="legend" transform="translate(130 1022)">
+    <rect x="0" y="-30" width="1660" height="44" rx="12" fill="#061330"/>
+    <path class="blue-flow" d="M42 -8 H112"/>
+    <text class="legend" x="132" y="-4">Request / frontend event flow</text>
+    <path class="green-flow" d="M440 -8 H510"/>
+    <text class="legend" x="530" y="-4">Agent, retrieval, provider flow</text>
+    <path class="orange-flow" d="M842 -8 H912"/>
+    <text class="legend" x="932" y="-4">Response, persistence, feedback loop</text>
+    <text class="legend" x="1410" y="-4">All nodes are numbered in execution order</text>
+  </g>
+</svg>

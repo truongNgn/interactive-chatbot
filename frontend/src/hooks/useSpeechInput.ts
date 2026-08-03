@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { API_BASE_URL } from '../config/backend'
 
 type SpeechState = 'idle' | 'listening' | 'recording' | 'processing' | 'uploading' | 'error'
 
@@ -21,8 +22,6 @@ interface SpeechInputResult {
   startRecording: () => void
   stopRecording: () => void
 }
-
-const API_BASE_URL = 'http://localhost:8000'
 
 export function useSpeechInput({
   onTranscript,

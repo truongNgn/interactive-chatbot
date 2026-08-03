@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { API_BASE_URL } from '../config/backend'
 import type { AudioChunkPayload, AuthUser, ChatMessage, ConversationDetail, ConversationSummary, Emotion, LlmProvider, Project, Session, WarmupStatus, WsStatus } from '../types'
 
 const MAX_SESSIONS = 100 // Increased for better project management
@@ -9,8 +10,6 @@ const ROUTER_KEY = 'chatbot_router_enabled'
 const AUTO_SEND_VOICE_KEY = 'chatbot_auto_send_voice_transcript'
 const AUTH_TOKEN_KEY = 'chatbot_auth_token'
 const AUTH_USER_KEY = 'chatbot_auth_user'
-const API_BASE_URL = 'http://localhost:8000'
-
 function generateTitle(text: string): string {
   const words = text.trim().split(/\s+/).slice(0, 8).join(' ')
   return words.length > 0 ? words : 'New Chat'

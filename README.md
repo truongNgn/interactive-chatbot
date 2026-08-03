@@ -146,6 +146,8 @@ npm install
 npm run dev
 ```
 
+Default local dev backend port is `8001` to avoid common conflicts with other API projects. The frontend uses `VITE_BACKEND_PORT` when set and otherwise connects to `localhost:8001`.
+
 Docker:
 
 ```bash

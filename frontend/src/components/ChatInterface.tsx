@@ -4,11 +4,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { API_BASE_URL } from '../config/backend'
 import { useSpeechInput } from '../hooks/useSpeechInput'
 import { useChatStore } from '../store/chatStore'
 import type { Emotion } from '../types'
-
-const API_BASE_URL = 'http://localhost:8000'
 
 interface ChatInterfaceProps {
   sendMessage: (text: string) => void

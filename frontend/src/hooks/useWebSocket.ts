@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { WS_BASE_URL } from '../config/backend'
 import { useChatStore } from '../store/chatStore'
 import type { InterruptPayload, LlmProvider, ServerMessage, SetModelPayload, UserMessagePayload } from '../types'
 
-const WS_URL = 'ws://localhost:8000/ws/chat'
+const WS_URL = `${WS_BASE_URL}/ws/chat`
 const RECONNECT_DELAY_MS = 3000
 
 export function useWebSocket(onClearQueue?: () => void) {
