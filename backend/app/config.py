@@ -99,7 +99,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Production hardening (Stage 7)
-    auth_required: bool = False
+    # Authentication is always required: /ws/chat and all per-user REST
+    # endpoints reject requests without a valid token (see app/auth.py).
     auth_token_secret: str = "change-me-dev-secret"
     auth_token_expire_minutes: int = 1440
     auth_dev_user_id: str = "dev_user"

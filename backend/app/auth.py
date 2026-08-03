@@ -96,12 +96,16 @@ def _extract_bearer(value: str | None) -> str | None:
 
 
 def resolve_auth_context(authorization: str | None = None, token: str | None = None) -> AuthContext:
+    """Resolve the caller's identity. A valid token is always required.
+
+    Chat and conversation data are per-user, so there is no anonymous or
+    shared "dev user" fallback: every request/connection must present a
+    token issued by /api/auth/login or /api/auth/register.
+    """
     raw = token or _extract_bearer(authorization)
     if raw:
         return verify_token(raw)
-    if settings.auth_required:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
-    return AuthContext(user_id=settings.auth_dev_user_id, mode="dev")
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
 
 
 async def get_request_auth_context(

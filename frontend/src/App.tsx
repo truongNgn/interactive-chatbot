@@ -2,12 +2,19 @@ import { useCallback, useEffect } from 'react'
 import { ChatInterface } from './components/ChatInterface'
 import { Sidebar } from './components/Sidebar'
 import { RightSidebar } from './components/RightSidebar'
+import { LoginScreen } from './components/LoginScreen'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAudioQueue } from './hooks/useAudioQueue'
 import { useVAD } from './hooks/useVAD'
 import { useChatStore } from './store/chatStore'
 
 export function App() {
+  const authUser = useChatStore((state) => state.authUser)
+  if (!authUser) return <LoginScreen />
+  return <AuthenticatedApp />
+}
+
+function AuthenticatedApp() {
   const { stopPlayback } = useAudioQueue()
   const { sendMessage, sendInterrupt, sendSetModel } = useWebSocket(stopPlayback)
   const authToken = useChatStore((state) => state.authToken)

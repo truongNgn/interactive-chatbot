@@ -41,6 +41,9 @@ def parse_client_message(data: dict, authenticated_user_id: str | None = None) -
         return MessageParseResult(type="set_model", provider=provider)
 
     if msg_type == "user_message":
+        if not authenticated_user_id:
+            return MessageParseResult(type="user_message", error="Authentication required.")
+
         user_text = str(data.get("text", "")).strip()
         if not user_text:
             return MessageParseResult(type="user_message", error="Empty message")
@@ -56,7 +59,7 @@ def parse_client_message(data: dict, authenticated_user_id: str | None = None) -
             type="user_message",
             request=ChatRequest(
                 text=user_text,
-                user_id=authenticated_user_id or settings.auth_dev_user_id,
+                user_id=authenticated_user_id,
                 session_id=str(data.get("session_id", "default_session")),
                 tts_enabled=bool(data.get("tts_enabled", True)),
                 router_enabled=bool(data.get("router_enabled", settings.router_enabled)),

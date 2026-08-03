@@ -218,11 +218,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   routerEnabled: loadRouterEnabled(),
   autoSendVoiceTranscript: loadAutoSendVoiceTranscript(),
   warmupStatus: null,
-  userId: (() => {
-    let id = localStorage.getItem('chat_user_id')
-    if (!id) { id = crypto.randomUUID(); localStorage.setItem('chat_user_id', id) }
-    return id
-  })(),
+  userId: loadAuthUser()?.id ?? '',
   authToken: loadAuthToken(),
   authUser: loadAuthUser(),
   authLoading: false,
@@ -289,17 +285,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setAuth: (token, user) => {
     saveAuth(token, user)
     set({ authToken: token, authUser: user, userId: user.id, authError: null })
-    try { localStorage.setItem('chat_user_id', user.id) } catch {}
   },
 
   logout: () => {
     saveAuth('', null)
-    const id = crypto.randomUUID()
-    try { localStorage.setItem('chat_user_id', id) } catch {}
     set({
       authToken: '',
       authUser: null,
-      userId: id,
+      userId: '',
       messages: [],
       sessions: [],
       activeSessionId: crypto.randomUUID(),

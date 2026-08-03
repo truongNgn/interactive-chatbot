@@ -153,13 +153,6 @@ async def readiness():
     }
 
 
-@app.post("/api/auth/dev-token")
-async def create_dev_token(user_id: str | None = None):
-    if settings.auth_required:
-        raise HTTPException(status_code=404, detail="Dev token endpoint disabled when AUTH_REQUIRED=true.")
-    return {"access_token": issue_dev_token(user_id), "token_type": "bearer"}
-
-
 @app.post("/api/auth/register")
 async def register(payload: RegisterRequest):
     try:
@@ -184,8 +177,6 @@ async def me(auth: AuthContext = Depends(get_request_auth_context)):
     user = await get_user(auth.user_id)
     if user:
         return {"user": user_public_dict(user), "auth": {"mode": auth.mode}}
-    if auth.mode == "dev":
-        return {"user": {"id": auth.user_id, "email": "", "display_name": "Dev User"}, "auth": {"mode": auth.mode}}
     raise HTTPException(status_code=404, detail="Authenticated user not found.")
 
 
