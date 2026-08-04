@@ -4,10 +4,11 @@ TTS Handler — Stage 2: Text-to-Speech.
 Kiến trúc:
   - BaseTTSHandler: abstract interface
   - ElevenLabsTTSHandler: cloud TTS với emotion → VoiceSettings mapping
+  - GoogleCloudTTSHandler: GCP TTS với LINEAR16 WAV format
   - CoquiXTTSHandler: local voice cloning với XTTS-v2 (chỉ cần 6-10s mẫu giọng)
   - NoOpTTSHandler: fallback khi không cấu hình TTS (trả về bytes rỗng)
 
-Factory function `get_tts_handler()` ưu tiên: ElevenLabs → XTTS → NoOp.
+Factory function `get_tts_handler()` hỗ trợ cấu hình qua tts_provider hoặc tự động fallback: ElevenLabs → XTTS → NoOp.
 """
 
 import asyncio
@@ -45,6 +46,12 @@ except Exception as exc:  # pragma: no cover - depends on optional SDK packaging
             self.similarity_boost = similarity_boost
             self.style = style
             self.use_speaker_boost = use_speaker_boost
+
+try:
+    from google.cloud import texttospeech
+except Exception as exc:
+    logger.warning("Google Cloud Text-to-Speech SDK import failed: %s", exc)
+    texttospeech = None
 
 # ---------------------------------------------------------------------------
 # Emotion → VoiceSettings mapping
@@ -162,6 +169,52 @@ class ElevenLabsTTSHandler(BaseTTSHandler):
 
         except Exception as exc:
             logger.error("ElevenLabs TTS error: %s", exc)
+            raise
+
+
+# ---------------------------------------------------------------------------
+# Google Cloud TTS implementation
+# ---------------------------------------------------------------------------
+
+class GoogleCloudTTSHandler(BaseTTSHandler):
+    """
+    Google Cloud Text-to-Speech service.
+    Generates audio in LINEAR16 format (WAV format with header) which works natively with Rhubarb.
+    """
+
+    def __init__(self) -> None:
+        if texttospeech is None:
+            raise RuntimeError("Google Cloud Text-to-Speech SDK is unavailable.")
+        self._client = texttospeech.TextToSpeechAsyncClient()
+        self._voice_name = settings.google_tts_voice_name
+        self._language_code = settings.google_tts_language_code
+
+    @property
+    def provider_name(self) -> str:
+        return "google-cloud"
+
+    async def synthesize(self, chunk: SentenceChunk) -> bytes:
+        logger.debug(
+            "Google Cloud TTS synthesize | text=%r",
+            chunk.text[:60],
+        )
+        try:
+            synthesis_input = texttospeech.SynthesisInput(text=chunk.text)
+            voice = texttospeech.VoiceSelectionParams(
+                language_code=self._language_code,
+                name=self._voice_name,
+            )
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.LINEAR16
+            )
+            response = await self._client.synthesize_speech(
+                input=synthesis_input,
+                voice=voice,
+                audio_config=audio_config,
+            )
+            return response.audio_content
+        except Exception as exc:
+            logger.error("Google Cloud TTS error: %s", exc)
             raise
 
 
@@ -357,6 +410,30 @@ class FallbackTTSHandler(BaseTTSHandler):
 # ---------------------------------------------------------------------------
 
 def get_tts_handler() -> BaseTTSHandler:
+    provider = settings.tts_provider.lower().strip()
+    if provider == "google-cloud":
+        logger.info("TTS: Google Cloud Text-to-Speech (voice=%s)", settings.google_tts_voice_name)
+        return GoogleCloudTTSHandler()
+    elif provider == "elevenlabs":
+        logger.info("TTS: ElevenLabs (voice=%s, model=%s)", settings.elevenlabs_voice_id, settings.elevenlabs_model_id)
+        return ElevenLabsTTSHandler()
+    elif provider == "xtts":
+        if settings.xtts_speaker_wav:
+            import os
+            if os.path.isfile(settings.xtts_speaker_wav):
+                logger.info(
+                    "TTS: Coqui XTTS-v2 | speaker_wav=%s | language=%s",
+                    settings.xtts_speaker_wav,
+                    settings.xtts_language,
+                )
+                return CoquiXTTSHandler(
+                    speaker_wav=settings.xtts_speaker_wav,
+                    language=settings.xtts_language,
+                    model_name=settings.xtts_model_name,
+                )
+        logger.error("XTTS selected but speaker WAV file not configured or not found. Running text-only.")
+        return NoOpTTSHandler()
+
     xtts_handler: BaseTTSHandler | None = None
     if settings.xtts_speaker_wav:
         import os

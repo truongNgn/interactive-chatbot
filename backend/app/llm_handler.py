@@ -146,6 +146,51 @@ class DeepSeekHandler(BaseLLMHandler):
             return False
 
 
+class GeminiHandler(BaseLLMHandler):
+    """Google Gemini via OpenAI-compatible API (Google AI Studio)."""
+
+    def __init__(self) -> None:
+        self._client = AsyncOpenAI(
+            api_key=settings.gemini_api_key,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
+        self.model = settings.gemini_model or "gemini-1.5-flash"
+
+    async def stream_tokens(self, user_text: str) -> AsyncGenerator[str, None]:
+        logger.info("Gemini stream | model=%s | input=%r", self.model, user_text[:80])
+        try:
+            stream = await self._client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_text},
+                ],
+                stream=True,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+        except Exception as exc:
+            logger.error("Gemini stream error: %s", exc)
+            raise
+
+    async def health_check(self) -> bool:
+        if not settings.gemini_api_key:
+            logger.warning("Gemini: GEMINI_API_KEY not set")
+            return False
+        try:
+            await self._client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=1
+            )
+            return True
+        except Exception as exc:
+            logger.error("Gemini health check failed: %s", exc)
+            return False
+
+
 # Backwards compat alias
 LLMHandler = OllamaHandler
 
@@ -155,6 +200,8 @@ def get_llm_handler(provider: str | None = None) -> BaseLLMHandler:
     p = (provider or settings.llm_provider).lower()
     if p == "deepseek":
         return DeepSeekHandler()
+    elif p == "gemini":
+        return GeminiHandler()
     elif p == "qwen":
         return OllamaHandler(model="qwen2.5:1.5b")
     return OllamaHandler()

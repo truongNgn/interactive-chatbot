@@ -14,8 +14,11 @@ load_dotenv(ENV_FILE, override=False)
 
 
 class Settings(BaseSettings):
-    # LLM Provider selection: "ollama" | "vllm" | "deepseek"
+    # LLM Provider selection: "ollama" | "vllm" | "deepseek" | "gemini"
     llm_provider: str = "ollama"
+
+    # TTS Provider selection: "elevenlabs" | "google-cloud" | "xtts" | ""
+    tts_provider: str = ""
 
     # vLLM OpenAI-compatible server
     vllm_base_url: str = "http://localhost:8080/v1"
@@ -37,6 +40,10 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-chat"
 
+    # Gemini
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-1.5-flash"
+
     # ElevenLabs TTS
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # "Rachel" — default voice
@@ -47,6 +54,10 @@ class Settings(BaseSettings):
     xtts_speaker_wav: str = ""          # path tới file giọng mẫu (.wav)
     xtts_language: str = "vi"           # "vi" hoặc "en", xem danh sách: https://docs.coqui.ai
     xtts_model_name: str = "tts_models/multilingual/multi-dataset/xtts_v2"
+
+    # Google Cloud TTS
+    google_tts_voice_name: str = "vi-VN-Neural2-A"
+    google_tts_language_code: str = "vi-VN"
 
     # Speech-to-Text (mic input Stage 3)
     stt_enabled: bool = False
