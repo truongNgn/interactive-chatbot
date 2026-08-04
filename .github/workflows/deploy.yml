@@ -61,8 +61,26 @@ jobs:
             --region=asia-southeast1 \
             --vpc-connector=persona-connector \
             --service-account=run-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
-            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},LLM_PROVIDER=gemini,TTS_PROVIDER=google-cloud,GOOGLE_TTS_VOICE_NAME=vi-VN-Neural2-A,GOOGLE_TTS_LANGUAGE_CODE=vi-VN,LANGSMITH_TRACING=true,LANGSMITH_API_KEY=${{ secrets.LANGSMITH_API_KEY }},LANGSMITH_PROJECT=${{ secrets.LANGSMITH_PROJECT }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" \
+            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},LLM_PROVIDER=gemini,TTS_PROVIDER=google-cloud,GOOGLE_TTS_VOICE_NAME=vi-VN-Neural2-A,GOOGLE_TTS_LANGUAGE_CODE=vi-VN,LANGSMITH_TRACING=true,LANGSMITH_API_KEY=${{ secrets.LANGSMITH_API_KEY }},LANGSMITH_PROJECT=${{ secrets.LANGSMITH_PROJECT }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},GEMINI_MODEL=gemini-2.5-flash" \
             --allow-unauthenticated \
             --min-instances=0 \
             --max-instances=3 \
             --quiet
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Frontend dependencies & Build
+        env:
+          VITE_BACKEND_HOST: chatbot-backend-431067307797.asia-southeast1.run.app
+          VITE_BACKEND_PORT: ""
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Deploy Frontend to Firebase Hosting
+        run: |
+          npx firebase-tools deploy --only hosting --project ${{ secrets.GCP_PROJECT_ID }} --non-interactive
