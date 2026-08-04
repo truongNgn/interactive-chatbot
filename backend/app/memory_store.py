@@ -85,9 +85,9 @@ _REFERENCE_RE = re.compile(
 def _get_embeddings():
     provider = settings.llm_provider.lower().strip()
     if provider == "gemini":
-        from langchain_google_genai import GoogleGenAIEmbeddings
-        logger.info("Initializing GoogleGenAIEmbeddings (text-embedding-004)")
-        return GoogleGenAIEmbeddings(
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+        logger.info("Initializing GoogleGenerativeAIEmbeddings (text-embedding-004)")
+        return GoogleGenerativeAIEmbeddings(
             model="models/text-embedding-004",
             google_api_key=settings.gemini_api_key,
         )
