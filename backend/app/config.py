@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
+    reload: bool = False
     log_level: str = "INFO"
 
     # Production hardening (Stage 7)

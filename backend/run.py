@@ -14,7 +14,7 @@ if __name__ == "__main__":
         "app.main:app",
         host=settings.host,
         port=settings.port,
-        reload=True,
-        reload_dirs=[str(BACKEND_ROOT / "app")],
+        reload=settings.reload,
+        reload_dirs=[str(BACKEND_ROOT / "app")] if settings.reload else None,
         log_level=settings.log_level.lower(),
     )
