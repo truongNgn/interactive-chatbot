@@ -1,0 +1,68 @@
+name: CI/CD Pipeline
+
+on:
+  pull_request:
+    branches: [ dev, main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Run Regression Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install uv
+          uv pip install -r requirements-prod.txt --system
+          uv pip install pytest --system
+
+      - name: Run Pytest
+        run: |
+          cd backend
+          python -m pytest tests -q
+
+  build-and-deploy:
+    name: Deploy to GCP Production
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure Docker for GCP
+        run: |
+          gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
+
+      - name: Build and Push Backend Image
+        run: |
+          docker build -t asia-southeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/chatbot-repo/backend:latest ./backend
+          docker push asia-southeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/chatbot-repo/backend:latest
+
+      - name: Deploy Backend to Cloud Run
+        run: |
+          gcloud run deploy chatbot-backend \
+            --image=asia-southeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/chatbot-repo/backend:latest \
+            --region=asia-southeast1 \
+            --vpc-connector=persona-connector \
+            --service-account=run-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
+            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},LLM_PROVIDER=gemini,TTS_PROVIDER=google-cloud,GOOGLE_TTS_VOICE_NAME=vi-VN-Neural2-A,GOOGLE_TTS_LANGUAGE_CODE=vi-VN,LANGSMITH_TRACING=true,LANGSMITH_API_KEY=${{ secrets.LANGSMITH_API_KEY }},LANGSMITH_PROJECT=${{ secrets.LANGSMITH_PROJECT }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" \
+            --allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=3 \
+            --quiet
