@@ -21,6 +21,8 @@ def _resolve_model(model: str | None, provider: str) -> str:
         return model
     if provider == "vllm":
         return settings.vllm_large_model
+    if provider == "gemini":
+        return settings.gemini_model or "gemini-1.5-flash"
     return settings.ollama_large_model
 
 
@@ -40,6 +42,13 @@ def build_chain(model: str | None = None) -> RunnableWithMessageHistory:
                 model=resolved,
                 base_url=settings.vllm_base_url,
                 api_key="not-needed",
+                streaming=True,
+            )
+        elif provider == "gemini":
+            from langchain_google_genai import ChatGoogleGenAI
+            llm = ChatGoogleGenAI(
+                model=resolved,
+                google_api_key=settings.gemini_api_key,
                 streaming=True,
             )
         else:

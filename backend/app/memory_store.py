@@ -82,10 +82,22 @@ _REFERENCE_RE = re.compile(
     re.IGNORECASE,
 )
 
-embeddings = OllamaEmbeddings(
-    model=settings.embedding_model,
-    base_url=settings.ollama_host,
-)
+def _get_embeddings():
+    provider = settings.llm_provider.lower().strip()
+    if provider == "gemini":
+        from langchain_google_genai import GoogleGenAIEmbeddings
+        logger.info("Initializing GoogleGenAIEmbeddings (text-embedding-004)")
+        return GoogleGenAIEmbeddings(
+            model="models/text-embedding-004",
+            google_api_key=settings.gemini_api_key,
+        )
+    logger.info("Initializing OllamaEmbeddings (%s)", settings.embedding_model)
+    return OllamaEmbeddings(
+        model=settings.embedding_model,
+        base_url=settings.ollama_host,
+    )
+
+embeddings = _get_embeddings()
 
 vectorstore = Chroma(
     collection_name="chat_memories",
