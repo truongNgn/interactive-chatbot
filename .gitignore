@@ -70,8 +70,6 @@ developer_log.md
 claude.md
 gemini.md
 AGENTS.md
-docs/INTERVIEW_PREP.md
-docs/CHARACTER_BRAIN_IMPLEMENTATION_PLAN.md
-docs/guides/USER_GUIDE.md
-docs/architecture/WORKFLOW.md
-docs/architecture/RAG_WORKFLOW.md
+docs/
+
+
