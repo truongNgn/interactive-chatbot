@@ -37,14 +37,19 @@ export function useAudioQueue() {
     useChatStore.getState()
 
   // Lazy-init + await resume (Chrome autoplay policy)
-  const getAudioContext = useCallback(async (): Promise<AudioContext> => {
-    if (!audioCtxRef.current) {
-      audioCtxRef.current = new AudioContext()
+  const getAudioContext = useCallback(async (): Promise<AudioContext | null> => {
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new AudioContext()
+      }
+      if (audioCtxRef.current.state === 'suspended') {
+        await audioCtxRef.current.resume()
+      }
+      return audioCtxRef.current
+    } catch (err) {
+      console.warn('[AudioQueue] AudioContext failed to initialize/resume:', err)
+      return null
     }
-    if (audioCtxRef.current.state === 'suspended') {
-      await audioCtxRef.current.resume()
-    }
-    return audioCtxRef.current
   }, [])
 
   // ── PRE-DECODE ──────────────────────────────────────────────────────────────
@@ -56,10 +61,17 @@ export function useAudioQueue() {
 
     // Lấy AudioContext (hoặc tạo mới nếu chưa có)
     const ctx = audioCtxRef.current ?? (() => {
-      const c = new AudioContext()
-      audioCtxRef.current = c
-      return c
+      try {
+        const c = new AudioContext()
+        audioCtxRef.current = c
+        return c
+      } catch (err) {
+        console.warn('[AudioQueue] AudioContext failed to initialize:', err)
+        return null
+      }
     })()
+
+    if (!ctx) return
 
     // Pre-decode tất cả chunk chưa được decode
     for (const chunk of audioQueue) {
@@ -96,6 +108,12 @@ export function useAudioQueue() {
 
     try {
       const ctx = await getAudioContext()
+      if (!ctx) {
+        console.warn('[AudioQueue] No AudioContext, skipping audio playback.')
+        isPlayingRef.current = false
+        playNext()
+        return
+      }
 
       // Lấy AudioBuffer từ cache pre-decode (thường đã xong) hoặc decode ngay
       let audioBuffer: AudioBuffer

@@ -1,13 +1,50 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import { useChatStore } from '../store/chatStore'
 
 export function LoginScreen() {
-  const { authLoading, authError, login, register } = useChatStore()
+  const { authLoading, authError, login, register, loginGoogle } = useChatStore()
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
+
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
+
+  useEffect(() => {
+    if (!googleClientId) return
+
+    let mounted = true
+    const initGoogle = () => {
+      if (!mounted) return
+      const g = (window as any).google
+      if (g?.accounts?.id) {
+        g.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: async (res: any) => {
+            if (res.credential) {
+              await loginGoogle(res.credential)
+            }
+          },
+        })
+        const btnEl = document.getElementById('google-signin-btn')
+        if (btnEl) {
+          g.accounts.id.renderButton(btnEl, {
+            theme: 'outline',
+            size: 'large',
+            width: 288,
+          })
+        }
+      } else {
+        setTimeout(initGoogle, 200)
+      }
+    }
+
+    initGoogle()
+    return () => {
+      mounted = false
+    }
+  }, [googleClientId, loginGoogle])
 
   const submit = async () => {
     if (!email.trim() || !password) return
@@ -70,6 +107,22 @@ export function LoginScreen() {
         <button disabled={authLoading} onClick={() => void submit()} style={s.primaryBtn}>
           {authLoading ? 'Working...' : mode === 'login' ? 'Login' : 'Create account'}
         </button>
+
+        <div style={s.divider}>
+          <div style={s.dividerLine}></div>
+          <span style={s.dividerText}>or</span>
+          <div style={s.dividerLine}></div>
+        </div>
+
+        {googleClientId ? (
+          <div style={s.googleWrapper}>
+            <div id="google-signin-btn"></div>
+          </div>
+        ) : (
+          <div style={s.googleWarning}>
+            Google Login requires VITE_GOOGLE_CLIENT_ID in .env.local
+          </div>
+        )}
       </div>
     </div>
   )
@@ -153,5 +206,38 @@ const s: Record<string, CSSProperties> = {
     color: '#fecaca',
     fontSize: 11,
     lineHeight: 1.4,
+  },
+  divider: {
+    display: 'flex',
+    alignItems: 'center',
+    textAlign: 'center',
+    margin: '14px 0 8px',
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    background: 'rgba(255,255,255,0.08)',
+  },
+  dividerText: {
+    padding: '0 10px',
+    color: '#6b7280',
+    fontSize: 12,
+  },
+  googleWrapper: {
+    display: 'flex',
+    justifyContent: 'center',
+    width: '100%',
+    minHeight: 40,
+    marginTop: 4,
+  },
+  googleWarning: {
+    color: '#94a3b8',
+    fontSize: 11,
+    textAlign: 'center',
+    padding: '8px',
+    borderRadius: 8,
+    border: '1px dashed rgba(255,255,255,0.1)',
+    background: 'rgba(255,255,255,0.02)',
+    marginTop: 4,
   },
 }

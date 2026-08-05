@@ -127,6 +127,7 @@ class Settings(BaseSettings):
     session_history_path: str = "./data/session_history"
     database_url: str = "postgresql+asyncpg://chatbot:chatbot@postgres:5432/chatbot"
     database_auto_create: bool = True
+    google_client_id: str = ""
 
     # LangSmith Observability
     # Keep both modern LANGSMITH_* and legacy LANGCHAIN_* names so older docs
