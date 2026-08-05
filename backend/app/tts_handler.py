@@ -300,9 +300,27 @@ class CoquiXTTSHandler(BaseTTSHandler):
             import os
             speaker_wav = self._speaker_wav
             if hasattr(chunk, "voice") and chunk.voice:
-                dynamic_voice_path = os.path.join("voices", chunk.voice)
-                if os.path.isfile(dynamic_voice_path):
-                    speaker_wav = dynamic_voice_path
+                if settings.gcs_bucket_name:
+                    local_cache_path = os.path.join("voices", chunk.voice)
+                    if os.path.isfile(local_cache_path):
+                        speaker_wav = local_cache_path
+                    else:
+                        try:
+                            from google.cloud import storage
+                            storage_client = storage.Client()
+                            bucket = storage_client.bucket(settings.gcs_bucket_name)
+                            blob = bucket.blob(f"voices/{chunk.voice}")
+                            if blob.exists():
+                                os.makedirs(os.path.dirname(local_cache_path), exist_ok=True)
+                                blob.download_to_filename(local_cache_path)
+                                logger.info("Downloaded GCS voice %s to %s", chunk.voice, local_cache_path)
+                                speaker_wav = local_cache_path
+                        except Exception as exc:
+                            logger.error("Failed to download GCS voice %s: %s", chunk.voice, exc)
+                else:
+                    dynamic_voice_path = os.path.join("voices", chunk.voice)
+                    if os.path.isfile(dynamic_voice_path):
+                        speaker_wav = dynamic_voice_path
 
             logger.debug(
                 "XTTS synthesize | lang=%s | text=%r | voice=%s",

@@ -80,9 +80,11 @@ function AssetDropdown({
 }
 
 export function RightSidebar() {
-  const { currentModel, currentVoice, setCurrentModel, setCurrentVoice } = useChatStore()
+  const { currentModel, currentVoice, authToken, setCurrentModel, setCurrentVoice } = useChatStore()
   const [models, setModels] = useState<string[]>([])
   const [voices, setVoices] = useState<string[]>([])
+  const [customModelName, setCustomModelName] = useState<string | null>(null)
+  const [uploadingVoice, setUploadingVoice] = useState(false)
 
   useEffect(() => {
     // Fetch models
@@ -96,7 +98,8 @@ export function RightSidebar() {
       .catch((err) => console.error('Failed to fetch models', err))
 
     // Fetch voices
-    fetch(`${API_BASE_URL}/api/voices`)
+    const headers: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {}
+    fetch(`${API_BASE_URL}/api/voices`, { headers })
       .then((res) => res.json())
       .then((data) => {
         if (data.voices && data.voices.length > 0) {
@@ -104,7 +107,50 @@ export function RightSidebar() {
         }
       })
       .catch((err) => console.error('Failed to fetch voices', err))
-  }, [])
+  }, [authToken])
+
+  const handleModelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const url = URL.createObjectURL(file)
+      setCustomModelName(file.name)
+      setCurrentModel(url)
+    }
+  }
+
+  const handleVoiceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploadingVoice(true)
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const headers: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {}
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/voices/upload`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+
+      // Refresh voices list
+      const voicesRes = await fetch(`${API_BASE_URL}/api/voices`, { headers: headers })
+      const voicesData = await voicesRes.json()
+      if (voicesData.voices) {
+        setVoices(voicesData.voices)
+        setCurrentVoice(data.filename)
+      }
+    } catch (err) {
+      console.error('Failed to upload voice', err)
+      alert('Failed to upload voice: ' + (err instanceof Error ? err.message : String(err)))
+    } finally {
+      setUploadingVoice(false)
+    }
+  }
 
   return (
     <div style={s.sidebar}>
@@ -120,10 +166,26 @@ export function RightSidebar() {
           label="3D Model"
           value={currentModel}
           options={models}
-          fallbackLabel={currentModel.split('/').pop() ?? currentModel}
+          fallbackLabel={customModelName || (currentModel.split('/').pop() ?? currentModel)}
           getOptionValue={(model) => `/models/${model}`}
-          onChange={setCurrentModel}
+          onChange={(val) => {
+            setCurrentModel(val)
+            setCustomModelName(null)
+          }}
         />
+
+        <div style={s.uploadRow}>
+          <label style={s.uploadBtn}>
+            📁 Choose local .glb model
+            <input
+              type="file"
+              accept=".glb"
+              onChange={handleModelUpload}
+              style={{ display: 'none' }}
+            />
+          </label>
+          {customModelName && <span style={s.fileName}>{customModelName}</span>}
+        </div>
         
         <AssetDropdown
           label="Voice"
@@ -134,6 +196,20 @@ export function RightSidebar() {
           getOptionLabel={(voice) => voice.replace(/\.wav$/i, '')}
           onChange={setCurrentVoice}
         />
+
+        <div style={s.uploadRow}>
+          <label style={s.uploadBtn}>
+            🎙️ Upload voice sample (.wav)
+            <input
+              type="file"
+              accept=".wav,.mp3"
+              onChange={handleVoiceUpload}
+              style={{ display: 'none' }}
+            />
+          </label>
+          {uploadingVoice && <span style={s.fileName}>Uploading...</span>}
+        </div>
+
         <div style={s.divider} />
       </div>
 
@@ -301,5 +377,37 @@ const s: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     letterSpacing: '0.04em',
     textTransform: 'uppercase',
+  },
+  uploadRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: -4,
+    marginBottom: 10,
+    paddingLeft: 10,
+    paddingRight: 10,
+  },
+  uploadBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px dashed rgba(255,255,255,0.18)',
+    borderRadius: 6,
+    padding: '5px 10px',
+    color: '#94a3b8',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+  },
+  fileName: {
+    color: '#60a5fa',
+    fontSize: 10,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: 145,
+    fontStyle: 'italic',
   },
 }
