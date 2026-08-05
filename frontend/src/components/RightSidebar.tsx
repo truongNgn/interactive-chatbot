@@ -1,5 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { useChatStore } from '../store/chatStore'
+import { ErrorBoundary } from './ErrorBoundary'
+import { API_BASE_URL } from '../config/backend'
 
 const Scene = lazy(() => import('./Scene').then((module) => ({ default: module.Scene })))
 
@@ -84,7 +86,7 @@ export function RightSidebar() {
 
   useEffect(() => {
     // Fetch models
-    fetch('/api/models')
+    fetch(`${API_BASE_URL}/api/models`)
       .then((res) => res.json())
       .then((data) => {
         if (data.models && data.models.length > 0) {
@@ -94,7 +96,7 @@ export function RightSidebar() {
       .catch((err) => console.error('Failed to fetch models', err))
 
     // Fetch voices
-    fetch('/api/voices')
+    fetch(`${API_BASE_URL}/api/voices`)
       .then((res) => res.json())
       .then((data) => {
         if (data.voices && data.voices.length > 0) {
@@ -137,9 +139,11 @@ export function RightSidebar() {
 
       {/* 3D Scene Container */}
       <div style={s.sceneContainer}>
-        <Suspense fallback={<SceneLoading />}>
-          <Scene />
-        </Suspense>
+        <ErrorBoundary fallback={<div style={s.sceneLoading}><div style={s.sceneLoadingText}>3D Avatar Unavailable</div></div>}>
+          <Suspense fallback={<SceneLoading />}>
+            <Scene />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     </div>
   )
