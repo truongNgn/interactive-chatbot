@@ -8,6 +8,8 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
+from pydantic import BaseModel
+
 from app.auth import AuthContext, get_request_auth_context, issue_dev_token
 from app.character_registry import character_registry
 from app.config import settings
@@ -18,6 +20,7 @@ from app.conversation_store import (
     create_user,
     delete_conversation,
     get_conversation_detail,
+    get_or_create_google_user,
     get_user,
     list_conversations,
     user_public_dict,
@@ -168,6 +171,48 @@ async def login(payload: LoginRequest):
     user = await authenticate_user(payload)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password.")
+    token = issue_dev_token(user.id)
+    return {"access_token": token, "token_type": "bearer", "user": user_public_dict(user)}
+
+
+class GoogleLoginRequest(BaseModel):
+    credential: str
+
+
+@app.post("/api/auth/google")
+async def login_google(payload: GoogleLoginRequest):
+    if not settings.google_client_id:
+        raise HTTPException(
+            status_code=500,
+            detail="Google Client ID is not configured on the backend. Please configure GOOGLE_CLIENT_ID."
+        )
+
+    try:
+        from google.oauth2 import id_token
+        from google.auth.transport import requests
+
+        id_info = id_token.verify_oauth2_token(
+            payload.credential,
+            requests.Request(),
+            settings.google_client_id
+        )
+
+        if id_info.get("iss") not in ["accounts.google.com", "https://accounts.google.com"]:
+            raise ValueError("Invalid issuer.")
+
+        email = id_info.get("email")
+        if not email:
+            raise ValueError("Email not present in Google token.")
+
+        display_name = id_info.get("name")
+    except Exception as exc:
+        logger.error("Google login failed: %s", exc)
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid Google token: {exc}"
+        ) from exc
+
+    user = await get_or_create_google_user(email, display_name)
     token = issue_dev_token(user.id)
     return {"access_token": token, "token_type": "bearer", "user": user_public_dict(user)}
 

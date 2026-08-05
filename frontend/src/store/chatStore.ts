@@ -175,6 +175,7 @@ interface ChatState {
   setAuth: (token: string, user: AuthUser) => void
   logout: () => void
   login: (email: string, password: string) => Promise<boolean>
+  loginGoogle: (credential: string) => Promise<boolean>
   register: (email: string, password: string, displayName?: string) => Promise<boolean>
   refreshServerConversations: () => Promise<void>
 
@@ -316,6 +317,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return true
     } catch (error) {
       set({ authError: error instanceof Error ? error.message : 'Login failed' })
+      return false
+    } finally {
+      set({ authLoading: false })
+    }
+  },
+
+  loginGoogle: async (credential) => {
+    set({ authLoading: true, authError: null })
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential }),
+      })
+      if (!response.ok) throw new Error(await response.text())
+      const payload = await response.json()
+      get().setAuth(payload.access_token, payload.user)
+      await get().refreshServerConversations()
+      return true
+    } catch (error) {
+      set({ authError: error instanceof Error ? error.message : 'Google login failed' })
       return false
     } finally {
       set({ authLoading: false })

@@ -145,6 +145,21 @@ async def get_user(user_id: str) -> User | None:
         return await session.get(User, user_id)
 
 
+async def get_or_create_google_user(email: str, display_name: str | None) -> User:
+    async with async_session_factory() as session:
+        user = await session.scalar(select(User).where(User.email == email.lower()))
+        if not user:
+            user = User(
+                email=email.lower(),
+                password_hash="oauth_google_no_password",
+                display_name=display_name,
+            )
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+        return user
+
+
 async def ensure_conversation(
     session: AsyncSession,
     *,
@@ -198,15 +213,17 @@ async def append_message(
                 character_id=character_id,
                 title_seed=content if role == "human" else None,
             )
+            now_time = _now()
             message = Message(
                 conversation_id=conversation.id,
                 role=role,
                 content=content,
                 turn_id=turn_id,
                 emotion=emotion,
+                created_at=now_time,
             )
             session.add(message)
-            conversation.updated_at = message.created_at
+            conversation.updated_at = now_time
 
 
 async def list_conversations(user_id: str, limit: int = 50) -> list[ConversationSummary]:
