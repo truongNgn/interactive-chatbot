@@ -117,7 +117,7 @@ class Settings(BaseSettings):
     auth_token_expire_minutes: int = 1440
     auth_dev_user_id: str = "dev_user"
     max_ws_message_bytes: int = 32768
-    max_rest_request_bytes: int = 1048576
+    max_rest_request_bytes: int = 10485760
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 120
     rate_limit_window_seconds: int = 60
@@ -128,6 +128,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://chatbot:chatbot@postgres:5432/chatbot"
     database_auto_create: bool = True
     google_client_id: str = ""
+    gcs_bucket_name: str = ""
 
     # LangSmith Observability
     # Keep both modern LANGSMITH_* and legacy LANGCHAIN_* names so older docs

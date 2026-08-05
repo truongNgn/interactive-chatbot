@@ -35,6 +35,7 @@ langgraph>=0.2.0
 langsmith>=0.1.0
 langchain-google-genai>=2.0.0
 google-cloud-texttospeech>=2.17.0
+google-cloud-storage>=2.0.0
 
 # Stage 6 local regression tests
 pytest>=8.3.0

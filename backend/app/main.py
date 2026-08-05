@@ -253,15 +253,84 @@ async def remove_conversation(
 
 
 @app.get("/api/voices")
-async def get_voices():
-    voices_dir = BACKEND_ROOT / "voices"
-    if not voices_dir.exists():
-        return {"voices": []}
-    voices = sorted(
-        f.name for f in voices_dir.iterdir()
-        if f.is_file() and f.suffix.lower() in SUPPORTED_VOICE_SUFFIXES
-    )
-    return {"voices": voices}
+async def get_voices(auth: AuthContext = Depends(get_request_auth_context)):
+    voices = []
+
+    if settings.gcs_bucket_name:
+        try:
+            from google.cloud import storage
+            storage_client = storage.Client()
+            bucket = storage_client.bucket(settings.gcs_bucket_name)
+            prefix = f"voices/{auth.user_id}/"
+            blobs = bucket.list_blobs(prefix=prefix)
+            for blob in blobs:
+                name = blob.name.replace("voices/", "")
+                if name and Path(name).suffix.lower() in SUPPORTED_VOICE_SUFFIXES:
+                    voices.append(name)
+        except Exception as exc:
+            logger.error("Failed to list GCS voices: %s", exc)
+
+    voices_dir = BACKEND_ROOT / "voices" / auth.user_id
+    if voices_dir.exists():
+        local_voices = [
+            f"{auth.user_id}/{f.name}" for f in voices_dir.iterdir()
+            if f.is_file() and f.suffix.lower() in SUPPORTED_VOICE_SUFFIXES
+        ]
+        for name in local_voices:
+            if name not in voices:
+                voices.append(name)
+
+    return {"voices": sorted(voices)}
+
+
+@app.post("/api/voices/upload")
+async def upload_voice(
+    file: UploadFile = File(...),
+    auth: AuthContext = Depends(get_request_auth_context)
+):
+    ext = Path(file.filename).suffix.lower() if file.filename else ""
+    if ext not in SUPPORTED_VOICE_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported audio format. Supported: {SUPPORTED_VOICE_SUFFIXES}",
+        )
+
+    filename = Path(file.filename).name if file.filename else "voice.wav"
+    user_voice_key = f"{auth.user_id}/{filename}"
+
+    if settings.gcs_bucket_name:
+        try:
+            from google.cloud import storage
+            storage_client = storage.Client()
+            bucket = storage_client.bucket(settings.gcs_bucket_name)
+            blob = bucket.blob(f"voices/{user_voice_key}")
+
+            content = await file.read()
+            blob.upload_from_string(content, content_type=file.content_type)
+            logger.info("Voice uploaded to GCS for user %s: %s", auth.user_id, filename)
+        except Exception as exc:
+            logger.error("Failed to upload voice to GCS: %s", exc)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to upload voice to GCS: {exc}",
+            ) from exc
+    else:
+        voices_dir = BACKEND_ROOT / "voices" / auth.user_id
+        voices_dir.mkdir(parents=True, exist_ok=True)
+        target_path = voices_dir / filename
+        try:
+            content = await file.read()
+            with open(target_path, "wb") as f:
+                f.write(content)
+            logger.info("Voice uploaded locally for user %s: %s", auth.user_id, target_path)
+        except Exception as exc:
+            logger.error("Failed to save uploaded voice locally: %s", exc)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save voice file locally: {exc}",
+            ) from exc
+
+    return {"filename": user_voice_key}
 
 
 @app.get("/api/characters")
