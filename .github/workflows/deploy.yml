@@ -74,8 +74,9 @@ jobs:
 
       - name: Install Frontend dependencies & Build
         env:
-          VITE_BACKEND_HOST: chatbot-backend-431067307797.asia-southeast1.run.app
+          VITE_BACKEND_HOST: ${{ secrets.VITE_BACKEND_HOST }}
           VITE_BACKEND_PORT: ""
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
         run: |
           cd frontend
           npm ci
