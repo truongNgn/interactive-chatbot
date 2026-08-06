@@ -26,7 +26,7 @@ function AssetDropdown({
 }: AssetDropdownProps) {
   const [open, setOpen] = useState(false)
   const selectedOption = options.find((option) => getOptionValue(option) === value)
-  const displayLabel = selectedOption ? getOptionLabel(selectedOption) : fallbackLabel
+  const displayLabel = (selectedOption ? getOptionLabel(selectedOption) : fallbackLabel) || `Choose ${label.toLowerCase()}...`
   const listId = `${label.toLowerCase().replace(/\s+/g, '-')}-asset-list`
 
   return (
