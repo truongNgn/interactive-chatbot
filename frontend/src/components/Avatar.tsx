@@ -403,6 +403,10 @@ function AvatarFallback() {
 // Exported component
 // ---------------------------------------------------------------------------
 export function Avatar() {
+  const currentModel = useChatStore((s) => s.currentModel)
+  if (!currentModel) {
+    return <AvatarFallback />
+  }
   return (
     <Suspense fallback={<AvatarFallback />}>
       <GLBAvatar />
