@@ -421,9 +421,10 @@ export function Sidebar({ onNewSession, sendSetModel }: SidebarProps) {
         <div style={s.footerRow}>
           <span style={s.footerLabel}>Model</span>
           <select value={llmProvider} onChange={handleProviderChange} disabled={wsStatus !== 'open'} style={s.select}>
-            <option value="ollama">Llama 3</option>
-            <option value="qwen">Qwen 1.5B</option>
+            <option value="ollama">Llama 3 (Local)</option>
+            <option value="qwen">Qwen 1.5B (Local)</option>
             <option value="deepseek">DeepSeek v3</option>
+            <option value="gemini">Google Gemini</option>
           </select>
         </div>
         <div style={s.footerRow}>
