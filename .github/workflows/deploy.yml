@@ -61,7 +61,7 @@ jobs:
             --region=asia-southeast1 \
             --vpc-connector=persona-connector \
             --service-account=run-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
-            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},LLM_PROVIDER=gemini,TTS_PROVIDER=google-cloud,GOOGLE_TTS_VOICE_NAME=vi-VN-Neural2-A,GOOGLE_TTS_LANGUAGE_CODE=vi-VN,LANGSMITH_TRACING=true,LANGSMITH_API_KEY=${{ secrets.LANGSMITH_API_KEY }},LANGSMITH_PROJECT=${{ secrets.LANGSMITH_PROJECT }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},GEMINI_MODEL=gemini-2.5-flash,GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }}" \
+            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},LLM_PROVIDER=gemini,TTS_PROVIDER=google-cloud,GOOGLE_TTS_VOICE_NAME=vi-VN-Neural2-A,GOOGLE_TTS_LANGUAGE_CODE=vi-VN,LANGSMITH_TRACING=true,LANGSMITH_API_KEY=${{ secrets.LANGSMITH_API_KEY }},LANGSMITH_PROJECT=${{ secrets.LANGSMITH_PROJECT }},LANGSMITH_WORKSPACE_ID=43e4716a-87f4-4c55-b9aa-572a7f773eaf,GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},GEMINI_MODEL=gemini-2.5-flash,GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }}" \
             --allow-unauthenticated \
             --min-instances=0 \
             --max-instances=3 \
