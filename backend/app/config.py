@@ -8,6 +8,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = BACKEND_ROOT / ".env"
 
+# Providers hợp lệ cho LLM_PROVIDER và cho message "set_model" từ WebSocket.
+# "qwen" là bí danh của Ollama chạy small model — giữ lại cho frontend hiện tại.
+SUPPORTED_LLM_PROVIDERS = ("ollama", "qwen", "vllm", "deepseek", "gemini")
+
 # LangSmith auto-tracing reads os.environ directly. BaseSettings parses .env
 # into the settings object, but it does not export unknown keys for LangChain.
 load_dotenv(ENV_FILE, override=False)

@@ -48,6 +48,19 @@ SUPPORTED_VOICE_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".m4a"}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ── LangSmith Observability status check ──────────────────────────────────
+    import os
+    tracing_enabled = os.environ.get("LANGCHAIN_TRACING_V2") or os.environ.get("LANGSMITH_TRACING")
+    project = os.environ.get("LANGCHAIN_PROJECT") or os.environ.get("LANGSMITH_PROJECT")
+    api_key = os.environ.get("LANGCHAIN_API_KEY") or os.environ.get("LANGSMITH_API_KEY")
+    if tracing_enabled == "true":
+        if api_key:
+            logger.info("LangSmith Tracing is ENABLED. Project: '%s'. Traces will be sent to LangSmith.", project)
+        else:
+            logger.warning("LangSmith Tracing is set to true, but API KEY is missing! Traces will not be sent.")
+    else:
+        logger.info("LangSmith Tracing is DISABLED.")
+
     # ── TTS handler setup ─────────────────────────────────────────────────────
     # Heavy LLM/XTTS warm-up runs in the background by default so FastAPI can
     # accept WebSocket connections immediately after the process starts.
@@ -104,10 +117,19 @@ app.add_middleware(
 app.add_middleware(RateLimitMiddleware)
 
 
+async def _llm_health() -> bool:
+    """Probe the configured LLM provider without letting a misconfigured
+    provider turn the health/ready probes into an opaque 500."""
+    try:
+        return await get_llm_handler().health_check()
+    except Exception as exc:
+        logger.error("LLM provider '%s' unavailable: %s", settings.llm_provider, exc)
+        return False
+
+
 @app.get("/health")
 async def health():
-    llm = get_llm_handler()
-    llm_ok = await llm.health_check()
+    llm_ok = await _llm_health()
     tts: BaseTTSHandler = app.state.tts_handler
     return {
         "status": "ok" if llm_ok else "degraded",
@@ -127,8 +149,7 @@ async def health():
 
 @app.get("/ready")
 async def readiness():
-    llm = get_llm_handler()
-    llm_ok = await llm.health_check()
+    llm_ok = await _llm_health()
     history_ok = session_history_ready()
     database_ok = await db_ready()
     tts: BaseTTSHandler = app.state.tts_handler

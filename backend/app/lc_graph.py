@@ -17,6 +17,7 @@ class ChatState(TypedDict):
     session_id: str
     character_id: str
     user_text: str
+    provider: str | None         # set from the WebSocket "set_model" message
     selected_model: str | None   # set by HeuristicRouter in orchestrator.py
     memory_context: str | None
     character_context: str | None   # từ retrieve_character_context_node (character brain lore)
@@ -34,6 +35,7 @@ def _agent_context(state: ChatState) -> AgentContext:
         session_id=state["session_id"],
         character_id=state["character_id"],
         agent_id=state.get("agent_id"),
+        provider=state.get("provider"),
         selected_model=state.get("selected_model"),
         turn_id=state.get("turn_id"),
     )
@@ -79,7 +81,7 @@ async def generate_node(state: ChatState) -> dict:
         }
     }
 
-    chain = build_chain(state.get("selected_model"))
+    chain = build_chain(state.get("selected_model"), state.get("provider"))
 
     async for token in chain.astream(
         {"user_input": state["user_text"], "system_prompt": state["system_prompt"]},

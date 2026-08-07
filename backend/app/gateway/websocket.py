@@ -11,7 +11,6 @@ from fastapi import WebSocket, WebSocketDisconnect
 from app.auth import websocket_auth_context
 from app.config import settings
 from app.gateway.schemas import ChatRequest, parse_client_message
-from app.llm_handler import get_llm_handler
 from app.models import ErrorPayload
 from app.orchestrator import Orchestrator, TurnOrchestrator
 from app.rate_limit import allow_ws_message
@@ -32,7 +31,7 @@ class WebSocketSink:
 def _build_turn_orchestrator(tts: BaseTTSHandler, provider: str) -> TurnOrchestrator:
     return TurnOrchestrator(
         tts_handler=tts,
-        sentence_producer=Orchestrator(get_llm_handler(provider)),
+        sentence_producer=Orchestrator(provider=provider),
     )
 
 
@@ -54,7 +53,20 @@ async def websocket_chat(websocket: WebSocket) -> None:
 
     tts: BaseTTSHandler = websocket.app.state.tts_handler
     current_provider = settings.llm_provider
-    turn_orchestrator = _build_turn_orchestrator(tts, current_provider)
+    try:
+        turn_orchestrator = _build_turn_orchestrator(tts, current_provider)
+    except Exception as exc:
+        # A misconfigured provider (e.g. missing API key) must not tear the
+        # socket down with an unhandled error — the client only sees a generic
+        # handshake failure. Report it, then close cleanly.
+        logger.error("LLM provider '%s' unavailable: %s", current_provider, exc)
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": f"LLM provider '{current_provider}' is not configured on the server.",
+        }))
+        await websocket.close(code=1011)
+        return
+
     current_task: asyncio.Task | None = None
     sink = WebSocketSink(websocket)
 

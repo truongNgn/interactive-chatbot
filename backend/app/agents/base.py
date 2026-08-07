@@ -13,6 +13,7 @@ class AgentContext(BaseModel):
     session_id: str
     character_id: str
     agent_id: str | None = None
+    provider: str | None = None
     selected_model: str | None = None
     turn_id: str | None = None
 
