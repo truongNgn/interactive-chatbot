@@ -15,7 +15,8 @@ from collections.abc import AsyncGenerator
 from app.agents import AgentContext, default_agent_registry
 from app.config import settings
 from app.feedback import FeedbackEvent, default_feedback_store
-from app.llm_handler import BaseLLMHandler, get_llm_handler
+from app.lc_chain import normalize_provider, resolve_router_models
+from app.llm_handler import BaseLLMHandler
 from app.models import SentenceChunk
 from app.orchestrator.routing import HeuristicRouter, build_routing_context
 from app.orchestrator.streaming import flush_buffer, should_flush
@@ -24,8 +25,18 @@ logger = logging.getLogger(__name__)
 
 
 class Orchestrator:
-    def __init__(self, llm_handler: BaseLLMHandler | None = None) -> None:
-        self._llm = llm_handler or get_llm_handler()
+    def __init__(
+        self,
+        llm_handler: BaseLLMHandler | None = None,
+        provider: str | None = None,
+    ) -> None:
+        # llm_handler là SDK thô, không tham gia sinh text (và không được
+        # LangSmith trace). Đường sinh text là LangGraph → lc_chain.build_chain(),
+        # nên provider mới là thứ phải truyền xuống. Giữ tham số cho tương thích
+        # ngược, nhưng không tự dựng handler: provider chưa cấu hình key sẽ ném
+        # lỗi ngay lúc khởi tạo và làm đứt WebSocket.
+        self._llm = llm_handler
+        self._provider = normalize_provider(provider)
         self._interrupted = False
 
     def interrupt(self) -> None:
@@ -60,12 +71,7 @@ class Orchestrator:
 
             selected_model: str | None = None
             if router_enabled:
-                if settings.llm_provider.lower().strip() == "vllm":
-                    large_model = settings.vllm_large_model
-                    small_model = settings.vllm_small_model
-                else:
-                    large_model = settings.ollama_large_model
-                    small_model = settings.ollama_small_model
+                large_model, small_model = resolve_router_models(self._provider)
                 router = HeuristicRouter(
                     large_model=large_model,
                     small_model=small_model,
@@ -80,16 +86,18 @@ class Orchestrator:
                 session_id=session_id,
                 character_id=resolved_character_id,
                 agent_id=agent_id,
+                provider=self._provider,
                 selected_model=selected_model,
                 turn_id=turn_id,
             )
             logger.info(
-                "Agent selected [turn=%s, session=%s, user=%s, character=%s, agent=%s, model=%s]",
+                "Agent selected [turn=%s, session=%s, user=%s, character=%s, agent=%s, provider=%s, model=%s]",
                 turn_id,
                 session_id,
                 user_id,
                 resolved_character_id,
                 agent_id,
+                self._provider,
                 selected_model,
             )
             if turn_id:
@@ -101,6 +109,7 @@ class Orchestrator:
                         turn_id=turn_id,
                         payload={
                             "agent_id": agent_id,
+                            "provider": self._provider,
                             "selected_model": selected_model,
                             "router_enabled": router_enabled,
                             "character_id": resolved_character_id,
@@ -134,6 +143,7 @@ class Orchestrator:
                                 payload={
                                     "latency_ms": latency_ms,
                                     "agent_id": agent_id,
+                                    "provider": self._provider,
                                     "selected_model": selected_model,
                                 },
                             )

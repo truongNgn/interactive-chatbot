@@ -150,6 +150,10 @@ class GeminiHandler(BaseLLMHandler):
     """Google Gemini via OpenAI-compatible API (Google AI Studio)."""
 
     def __init__(self) -> None:
+        if not settings.gemini_api_key:
+            raise RuntimeError(
+                "GEMINI_API_KEY is not set; cannot use the 'gemini' LLM provider."
+            )
         self._client = AsyncOpenAI(
             api_key=settings.gemini_api_key,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",

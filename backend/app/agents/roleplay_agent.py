@@ -25,6 +25,7 @@ class RoleplayChatAgent:
                     "session_id": context.session_id,
                     "character_id": context.character_id,
                     "user_text": user_text,
+                    "provider": context.provider,
                     "selected_model": context.selected_model,
                     "token_queue": token_queue,
                     "turn_id": context.turn_id,
@@ -32,12 +33,19 @@ class RoleplayChatAgent:
                 },
                 config={
                     "run_name": "interactive_chatbot_turn",
-                    "tags": ["websocket", "langgraph", "streaming", f"agent:{self.id}"],
+                    "tags": [
+                        "websocket",
+                        "langgraph",
+                        "streaming",
+                        f"agent:{self.id}",
+                        f"provider:{context.provider}",
+                    ],
                     "metadata": {
                         "turn_id": context.turn_id,
                         "session_id": context.session_id,
                         "user_id": context.user_id,
                         "character_id": context.character_id,
+                        "provider": context.provider,
                         "selected_model": context.selected_model,
                         "agent_id": self.id,
                     },

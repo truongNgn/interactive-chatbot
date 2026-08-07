@@ -7,7 +7,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from app.character_registry import character_registry
-from app.config import settings
+from app.config import SUPPORTED_LLM_PROVIDERS, settings
 
 
 class ChatRequest(BaseModel):
@@ -35,8 +35,8 @@ def parse_client_message(data: dict, authenticated_user_id: str | None = None) -
         return MessageParseResult(type="interrupt")
 
     if msg_type == "set_model":
-        provider = data.get("provider", "ollama").lower()
-        if provider not in ("ollama", "deepseek", "qwen"):
+        provider = str(data.get("provider", "ollama")).lower().strip()
+        if provider not in SUPPORTED_LLM_PROVIDERS:
             return MessageParseResult(type="set_model", error=f"Unknown provider: {provider}")
         return MessageParseResult(type="set_model", provider=provider)
 
