@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     google_tts_voice_name: str = "vi-VN-Neural2-A"
     google_tts_language_code: str = "vi-VN"
 
+    # Custom GCP TTS (deployed model)
+    gcp_custom_tts_url: str = ""
+    gcp_custom_tts_api_key: str = ""
+
     # Speech-to-Text (mic input Stage 3)
     stt_enabled: bool = False
     stt_provider: str = "faster-whisper"   # "faster-whisper" | "openai" | "none"

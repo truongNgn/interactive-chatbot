@@ -219,6 +219,69 @@ class GoogleCloudTTSHandler(BaseTTSHandler):
 
 
 # ---------------------------------------------------------------------------
+# Custom GCP TTS implementation (deployed model)
+# ---------------------------------------------------------------------------
+
+class GCPCustomTTSHandler(BaseTTSHandler):
+    """
+    Handler for a custom TTS model hosted on GCP (Cloud Run, Vertex AI, GKE).
+    Sends the text payload via HTTP POST and expects audio bytes in return.
+    """
+
+    def __init__(self) -> None:
+        self._url = settings.gcp_custom_tts_url
+        self._api_key = settings.gcp_custom_tts_api_key
+        if not self._url:
+            raise RuntimeError("GCP_CUSTOM_TTS_URL is not configured.")
+
+    @property
+    def provider_name(self) -> str:
+        return "gcp-custom"
+
+    async def synthesize(self, chunk: SentenceChunk) -> bytes:
+        logger.debug(
+            "Custom GCP TTS synthesize | url=%s | text=%r",
+            self._url,
+            chunk.text[:60],
+        )
+        
+        headers = {}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+
+        payload = {
+            "text": chunk.text,
+            "voice": chunk.voice if hasattr(chunk, "voice") and chunk.voice else "default",
+            "emotion": chunk.emotion.value if hasattr(chunk, "emotion") and chunk.emotion else "neutral",
+        }
+
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(self._url, json=payload, headers=headers)
+                if response.status_code != 200:
+                    logger.error(
+                        "Custom GCP TTS server returned status %d: %s",
+                        response.status_code,
+                        response.text,
+                    )
+                    response.raise_for_status()
+                return response.content
+        except Exception as exc:
+            logger.error("Custom GCP TTS request failed: %s", exc)
+            raise
+
+    async def warmup(self) -> None:
+        logger.info("Warming up Custom GCP TTS endpoint: %s", self._url)
+        dummy = SentenceChunk(text="Hi.", emotion=Emotion.neutral)
+        try:
+            await self.synthesize(dummy)
+            logger.info("Custom GCP TTS endpoint warmed up successfully.")
+        except Exception as exc:
+            logger.warning("Custom GCP TTS warmup failed (non-fatal): %s", exc)
+
+
+# ---------------------------------------------------------------------------
 # Coqui XTTS-v2: local voice cloning
 # ---------------------------------------------------------------------------
 
@@ -432,6 +495,9 @@ def get_tts_handler() -> BaseTTSHandler:
     if provider == "google-cloud":
         logger.info("TTS: Google Cloud Text-to-Speech (voice=%s)", settings.google_tts_voice_name)
         return GoogleCloudTTSHandler()
+    elif provider == "gcp-custom":
+        logger.info("TTS: Custom GCP TTS (endpoint=%s)", settings.gcp_custom_tts_url)
+        return GCPCustomTTSHandler()
     elif provider == "elevenlabs":
         logger.info("TTS: ElevenLabs (voice=%s, model=%s)", settings.elevenlabs_voice_id, settings.elevenlabs_model_id)
         return ElevenLabsTTSHandler()
@@ -471,6 +537,14 @@ def get_tts_handler() -> BaseTTSHandler:
                 language=settings.xtts_language,
                 model_name=settings.xtts_model_name,
             )
+
+    if settings.gcp_custom_tts_url:
+        logger.info("TTS: Custom GCP TTS (endpoint=%s)", settings.gcp_custom_tts_url)
+        gcp_custom_handler = GCPCustomTTSHandler()
+        if xtts_handler is not None:
+            logger.info("TTS: local XTTS fallback is enabled if Custom GCP TTS fails.")
+            return FallbackTTSHandler(primary=gcp_custom_handler, secondary=xtts_handler)
+        return gcp_custom_handler
 
     if settings.elevenlabs_api_key:
         if AsyncElevenLabs is None:
