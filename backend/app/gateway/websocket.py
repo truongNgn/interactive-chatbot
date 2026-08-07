@@ -37,13 +37,18 @@ def _build_turn_orchestrator(tts: BaseTTSHandler, provider: str) -> TurnOrchestr
 
 
 async def websocket_chat(websocket: WebSocket) -> None:
+    await websocket.accept()
     try:
         auth_context = websocket_auth_context(websocket)
-    except Exception:
+    except Exception as exc:
+        logger.warning("WebSocket authentication failed: %s", exc)
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": "Authentication failed. Please log in again."
+        }))
         await websocket.close(code=1008)
         return
 
-    await websocket.accept()
     client = websocket.client
     logger.info("WebSocket connected: %s user=%s auth=%s", client, auth_context.user_id, auth_context.mode)
 

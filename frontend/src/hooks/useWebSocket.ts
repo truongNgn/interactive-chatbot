@@ -31,9 +31,17 @@ export function useWebSocket(onClearQueue?: () => void) {
       setWsStatus('open')
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event: CloseEvent) => {
       if (!isMounted.current) return
       setWsStatus('closed')
+      
+      // If code is 1008 (Policy Violation / Auth failed), log out and do not auto-reconnect.
+      if (event.code === 1008) {
+        console.warn('[WS] Connection closed due to authentication failure.')
+        useChatStore.getState().logout()
+        return
+      }
+
       // Auto-reconnect
       reconnectTimer.current = setTimeout(() => {
         if (isMounted.current) connect()

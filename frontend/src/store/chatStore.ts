@@ -72,9 +72,28 @@ function loadAutoSendVoiceTranscript(): boolean {
   }
 }
 
+function isTokenExpired(token: string): boolean {
+  if (!token) return true
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return true
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.exp !== 'number') return true
+    return payload.exp * 1000 < Date.now()
+  } catch {
+    return true
+  }
+}
+
 function loadAuthToken(): string {
   try {
-    return localStorage.getItem(AUTH_TOKEN_KEY) ?? ''
+    const token = localStorage.getItem(AUTH_TOKEN_KEY) ?? ''
+    if (token && isTokenExpired(token)) {
+      localStorage.removeItem(AUTH_TOKEN_KEY)
+      localStorage.removeItem(AUTH_USER_KEY)
+      return ''
+    }
+    return token
   } catch {
     return ''
   }
@@ -82,6 +101,10 @@ function loadAuthToken(): string {
 
 function loadAuthUser(): AuthUser | null {
   try {
+    const token = localStorage.getItem(AUTH_TOKEN_KEY) ?? ''
+    if (token && isTokenExpired(token)) {
+      return null
+    }
     const raw = localStorage.getItem(AUTH_USER_KEY)
     return raw ? (JSON.parse(raw) as AuthUser) : null
   } catch {
@@ -369,27 +392,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const token = get().authToken
     if (!token) return
     const headers = { Authorization: `Bearer ${token}` }
-    const response = await fetch(`${API_BASE_URL}/api/conversations`, { headers })
-    if (!response.ok) return
-    const payload = (await response.json()) as { conversations: ConversationSummary[] }
-    const details = await Promise.all(
-      payload.conversations.map(async (conversation) => {
-        const detailResponse = await fetch(`${API_BASE_URL}/api/conversations/${conversation.id}`, { headers })
-        if (!detailResponse.ok) return null
-        return (await detailResponse.json()) as ConversationDetail
-      }),
-    )
-    const serverSessions = details
-      .filter((item): item is ConversationDetail => item !== null)
-      .map(mapConversation)
-      .sort((a, b) => b.createdAt - a.createdAt)
-    saveSessions(serverSessions)
-    const active = serverSessions[0]
-    set({
-      sessions: serverSessions,
-      activeSessionId: active?.id ?? get().activeSessionId,
-      messages: active?.messages ?? get().messages,
-    })
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/conversations`, { headers })
+      if (response.status === 401) {
+        get().logout()
+        return
+      }
+      if (!response.ok) return
+      const payload = (await response.json()) as { conversations: ConversationSummary[] }
+      const details = await Promise.all(
+        payload.conversations.map(async (conversation) => {
+          const detailResponse = await fetch(`${API_BASE_URL}/api/conversations/${conversation.id}`, { headers })
+          if (detailResponse.status === 401) {
+            get().logout()
+            return null
+          }
+          if (!detailResponse.ok) return null
+          return (await detailResponse.json()) as ConversationDetail
+        }),
+      )
+      const serverSessions = details
+        .filter((item): item is ConversationDetail => item !== null)
+        .map(mapConversation)
+        .sort((a, b) => b.createdAt - a.createdAt)
+      saveSessions(serverSessions)
+      const active = serverSessions[0]
+      set({
+        sessions: serverSessions,
+        activeSessionId: active?.id ?? get().activeSessionId,
+        messages: active?.messages ?? get().messages,
+      })
+    } catch (error) {
+      console.error('Failed to refresh server conversations', error)
+    }
   },
 
   createNewSession: () => {

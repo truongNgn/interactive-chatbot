@@ -82,7 +82,7 @@ export interface ChatMessage {
 
 export type WsStatus = 'connecting' | 'open' | 'closed' | 'error'
 
-export type LlmProvider = 'ollama' | 'deepseek' | 'qwen'
+export type LlmProvider = 'ollama' | 'deepseek' | 'qwen' | 'gemini'
 
 export interface SetModelPayload {
   type: 'set_model'

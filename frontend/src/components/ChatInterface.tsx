@@ -134,6 +134,10 @@ export function ChatInterface({
           message_id: messageId,
         }),
       })
+      if (response.status === 401) {
+        useChatStore.getState().logout()
+        return
+      }
       if (!response.ok) {
         throw new Error(`Rating failed: ${response.status}`)
       }

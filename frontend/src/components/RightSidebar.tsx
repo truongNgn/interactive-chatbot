@@ -100,7 +100,13 @@ export function RightSidebar() {
     // Fetch voices
     const headers: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {}
     fetch(`${API_BASE_URL}/api/voices`, { headers })
-      .then((res) => res.json())
+      .then((res) => {
+        if (res.status === 401) {
+          useChatStore.getState().logout()
+          throw new Error('Unauthorized')
+        }
+        return res.json()
+      })
       .then((data) => {
         if (data.voices && data.voices.length > 0) {
           setVoices(data.voices)
@@ -134,11 +140,19 @@ export function RightSidebar() {
         headers,
         body: formData,
       })
+      if (res.status === 401) {
+        useChatStore.getState().logout()
+        return
+      }
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
 
       // Refresh voices list
       const voicesRes = await fetch(`${API_BASE_URL}/api/voices`, { headers: headers })
+      if (voicesRes.status === 401) {
+        useChatStore.getState().logout()
+        return
+      }
       const voicesData = await voicesRes.json()
       if (voicesData.voices) {
         setVoices(voicesData.voices)
