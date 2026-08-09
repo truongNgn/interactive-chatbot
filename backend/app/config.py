@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     lore_chunk_threshold_words: int = 3000     # Tier 2 threshold
     lore_chunk_size_chars: int = 1500
     lore_chunk_overlap_chars: int = 200
+    # Hard cap on total lore text injected into the prompt (pinned sections
+    # first, then retrieved ones) — a fixed budget until model context_window
+    # metadata exists to size this dynamically (see docs/MODEL_MANAGEMENT_PLAN.md).
+    lore_max_context_chars: int = 6000
 
     # Long-term Memory — ChromaDB (Stage 3)
     memory_enabled: bool = True
