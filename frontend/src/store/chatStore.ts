@@ -196,6 +196,7 @@ interface ChatState {
   setCurrentVoice: (voice: string) => void
   fetchCharacters: () => Promise<void>
   setCharacter: (characterId: string) => void
+  loadCharacterAvatarOverride: (characterId: string) => Promise<void>
   setLlmProvider: (provider: LlmProvider) => void
   setTtsEnabled: (val: boolean) => void
   setRouterEnabled: (val: boolean) => void
@@ -326,6 +327,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ...avatarPatch,
         }
       })
+
+      // Apply the user's saved custom avatar for the resolved character, if
+      // any, on top of the character's default set above.
+      const resolvedId = get().currentCharacterId
+      if (resolvedId) void get().loadCharacterAvatarOverride(resolvedId)
     } catch (error) {
       console.error('[chatStore] Failed to fetch characters', error)
     }
@@ -350,6 +356,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ...(character.avatar ? { currentModel: character.avatar } : {}),
     })
     get().createNewSession()
+    // Refine currentModel to the user's saved custom avatar for this
+    // character, if one exists — set() above already applied the
+    // character's default so the UI updates immediately either way.
+    void get().loadCharacterAvatarOverride(characterId)
+  },
+
+  loadCharacterAvatarOverride: async (characterId) => {
+    const token = get().authToken
+    if (!token) return
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/characters/${characterId}/avatar`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (response.status === 401) {
+        get().logout()
+        return
+      }
+      if (!response.ok) return
+      const data = (await response.json()) as { avatar: string | null }
+      // Guard against a stale response landing after the user switched
+      // characters again while this request was in flight.
+      if (data.avatar && get().currentCharacterId === characterId) {
+        set({ currentModel: data.avatar })
+      }
+    } catch (error) {
+      console.error('[chatStore] Failed to load avatar override', error)
+    }
   },
 
   setLlmProvider: (provider) => set({ llmProvider: provider }),
