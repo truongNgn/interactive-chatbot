@@ -72,5 +72,6 @@ claude.md
 gemini.md
 AGENTS.md
 docs/
-
-
+# GCP Custom TTS model files
+gcp-tts-service/*.onnx
+gcp-tts-service/voices.bin
