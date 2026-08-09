@@ -1,0 +1,18 @@
+# Ignore local download cache files
+kokoro-v0_19.onnx
+voices.bin
+
+# Git metadata
+.git
+.gitignore
+
+# Node/Python local packages and virtualenvs
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.vscode/
