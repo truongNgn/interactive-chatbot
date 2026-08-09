@@ -28,6 +28,14 @@ from app.models import Emotion, SentenceChunk
 logger = logging.getLogger(__name__)
 
 try:
+    from langsmith import traceable
+except ImportError:
+    # Safe fallback if langsmith is not installed
+    def traceable(*args, **kwargs):
+         return lambda func: func
+
+
+try:
     from elevenlabs import VoiceSettings
     from elevenlabs.client import AsyncElevenLabs
 except Exception as exc:  # pragma: no cover - depends on optional SDK packaging
@@ -137,6 +145,7 @@ class ElevenLabsTTSHandler(BaseTTSHandler):
         self._model_id = settings.elevenlabs_model_id
         self._output_format = settings.elevenlabs_output_format
 
+    @traceable(name="ElevenLabs TTS Synthesize", run_type="tool")
     async def synthesize(self, chunk: SentenceChunk) -> bytes:
         """
         Gọi ElevenLabs convert() để stream audio bytes về, gom lại thành
@@ -193,6 +202,7 @@ class GoogleCloudTTSHandler(BaseTTSHandler):
     def provider_name(self) -> str:
         return "google-cloud"
 
+    @traceable(name="Google Cloud TTS Synthesize", run_type="tool")
     async def synthesize(self, chunk: SentenceChunk) -> bytes:
         logger.debug(
             "Google Cloud TTS synthesize | text=%r",
@@ -238,8 +248,10 @@ class GCPCustomTTSHandler(BaseTTSHandler):
     def provider_name(self) -> str:
         return "gcp-custom"
 
+    @traceable(name="GCP Custom TTS Synthesize", run_type="tool")
     async def synthesize(self, chunk: SentenceChunk) -> bytes:
         logger.debug(
+
             "Custom GCP TTS synthesize | url=%s | text=%r",
             self._url,
             chunk.text[:60],
@@ -351,8 +363,10 @@ class CoquiXTTSHandler(BaseTTSHandler):
             self._tts = _load_xtts_model(self._model_name)
         return self._tts
 
+    @traceable(name="Coqui XTTS Synthesize", run_type="tool")
     async def synthesize(self, chunk: SentenceChunk) -> bytes:
         loop = asyncio.get_event_loop()
+
 
         def _run() -> bytes:
             try:
