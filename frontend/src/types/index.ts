@@ -55,12 +55,28 @@ export interface Project {
   createdAt: number
 }
 
+// Character roleplay — mirrors backend app/character_registry.py::Character.public_dict()
+export interface Character {
+  id: string
+  display_name: string
+  voice: string | null
+  avatar: string | null           // resolved URL (local static or GCS), not a raw key
+  avatar_thumbnail: string | null // resolved URL, same as avatar
+  description: string
+}
+
+export interface CharactersResponse {
+  characters: Character[]
+  default: string
+}
+
 // Client → Server
 export interface UserMessagePayload {
   type: 'user_message'
   text: string
   user_id?: string
   session_id?: string
+  character_id?: string
   tts_enabled?: boolean
   router_enabled?: boolean
   voice?: string

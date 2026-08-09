@@ -5,8 +5,9 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, WebSocket
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from pydantic import BaseModel
 
@@ -44,6 +45,7 @@ logger = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BACKEND_ROOT.parent
 SUPPORTED_VOICE_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".m4a"}
+SUPPORTED_AVATAR_SUFFIXES = {".glb"}
 
 
 @asynccontextmanager
@@ -115,6 +117,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(RateLimitMiddleware)
+
+# Local-dev-only static serving for per-user custom avatars. Unlike voice
+# uploads (consumed server-side by the TTS pipeline, never fetched by the
+# browser), custom 3D models must be reachable by the browser's GLTFLoader
+# directly. When GCS_BUCKET_NAME is set (cloud deploy), this mount is unused
+# — avatars are served from GCS instead (see get_character_avatar()).
+_LOCAL_AVATARS_DIR = BACKEND_ROOT / "avatars"
+_LOCAL_AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static/avatars", StaticFiles(directory=_LOCAL_AVATARS_DIR), name="custom_avatars")
 
 
 async def _llm_health() -> bool:
@@ -357,6 +368,90 @@ async def upload_voice(
 @app.get("/api/characters")
 async def get_characters():
     return {"characters": character_registry.list_public(), "default": settings.default_character_id}
+
+
+@app.get("/api/characters/{character_id}/avatar")
+async def get_character_avatar(
+    character_id: str,
+    request: Request,
+    auth: AuthContext = Depends(get_request_auth_context),
+):
+    """Resolve the avatar to use for this character for the current user:
+    their own uploaded override if one exists (see POST below), else the
+    character's default from the registry. Auth-gated (unlike GET
+    /api/characters, which is public) because the answer depends on the
+    caller's identity — see docs/RAG_character_roleplay_implementation_plan.md
+    §2.3."""
+    if settings.gcs_bucket_name:
+        try:
+            from google.cloud import storage
+            storage_client = storage.Client()
+            bucket = storage_client.bucket(settings.gcs_bucket_name)
+            blob = bucket.blob(f"avatars/custom/{auth.user_id}/{character_id}.glb")
+            if blob.exists():
+                return {"avatar": f"https://storage.googleapis.com/{settings.gcs_bucket_name}/avatars/custom/{auth.user_id}/{character_id}.glb"}
+        except Exception as exc:
+            logger.error("Failed to check GCS custom avatar for %s: %s", character_id, exc)
+    else:
+        local_path = _LOCAL_AVATARS_DIR / auth.user_id / f"{character_id}.glb"
+        if local_path.exists():
+            base = str(request.base_url).rstrip("/")
+            return {"avatar": f"{base}/static/avatars/{auth.user_id}/{character_id}.glb"}
+
+    character = character_registry.get(character_id)
+    return {"avatar": character.get("avatar") if character else None}
+
+
+@app.post("/api/characters/{character_id}/avatar")
+async def upload_character_avatar(
+    character_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    auth: AuthContext = Depends(get_request_auth_context),
+):
+    """Persist a per-user custom 3D model for one character. Mirrors
+    /api/voices/upload's GCS-vs-local branching. Keyed by
+    (user_id, character_id) — never touches character_registry / the
+    character's lore, so the character's "brain" stays the same regardless
+    of which avatar is displayed (see plan §2.3)."""
+    ext = Path(file.filename).suffix.lower() if file.filename else ""
+    if ext not in SUPPORTED_AVATAR_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported 3D model format. Supported: {SUPPORTED_AVATAR_SUFFIXES}",
+        )
+
+    if not character_registry.get(character_id):
+        raise HTTPException(status_code=404, detail=f"Unknown character_id: {character_id}")
+
+    content = await file.read()
+
+    if settings.gcs_bucket_name:
+        try:
+            from google.cloud import storage
+            storage_client = storage.Client()
+            bucket = storage_client.bucket(settings.gcs_bucket_name)
+            blob = bucket.blob(f"avatars/custom/{auth.user_id}/{character_id}.glb")
+            blob.upload_from_string(content, content_type=file.content_type)
+            logger.info("Custom avatar uploaded to GCS: user=%s character=%s", auth.user_id, character_id)
+            return {"avatar": f"https://storage.googleapis.com/{settings.gcs_bucket_name}/avatars/custom/{auth.user_id}/{character_id}.glb"}
+        except Exception as exc:
+            logger.error("Failed to upload custom avatar to GCS: %s", exc)
+            raise HTTPException(status_code=500, detail=f"Failed to upload avatar to GCS: {exc}") from exc
+
+    avatars_dir = _LOCAL_AVATARS_DIR / auth.user_id
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+    target_path = avatars_dir / f"{character_id}.glb"
+    try:
+        with open(target_path, "wb") as f:
+            f.write(content)
+        logger.info("Custom avatar saved locally: user=%s character=%s path=%s", auth.user_id, character_id, target_path)
+    except Exception as exc:
+        logger.error("Failed to save custom avatar locally: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Failed to save avatar locally: {exc}") from exc
+
+    base = str(request.base_url).rstrip("/")
+    return {"avatar": f"{base}/static/avatars/{auth.user_id}/{character_id}.glb"}
 
 
 @app.get("/api/models")
