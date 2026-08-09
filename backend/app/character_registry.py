@@ -24,7 +24,10 @@ DEFAULT_REGISTRY_PATH = PROJECT_ROOT / "docs" / "characters" / "characters.json"
 # Fields that are internal wiring, not display data — never leak these into
 # public_dict()/metadata, since character_registry.get()/list_public() feed
 # directly into the unauthenticated GET /api/characters response.
-_INTERNAL_FIELDS = {"id", "display_name", "name", "voice", "avatar", "description", "brain_path"}
+_INTERNAL_FIELDS = {
+    "id", "display_name", "name", "voice", "avatar", "avatar_thumbnail",
+    "description", "brain_path",
+}
 
 
 def resolve_avatar_url(avatar_key: str | None) -> str | None:
@@ -50,6 +53,7 @@ class Character:
     display_name: str
     voice: str | None = None
     avatar: str | None = None
+    avatar_thumbnail: str | None = None
     description: str = ""
     # Internal wiring — resolved server-side (lore_ingest.py / lore_store.py),
     # never serialized by public_dict(). Kept as an explicit field rather than
@@ -64,6 +68,7 @@ class Character:
             "display_name": self.display_name,
             "voice": self.voice,
             "avatar": resolve_avatar_url(self.avatar),
+            "avatar_thumbnail": resolve_avatar_url(self.avatar_thumbnail),
             "description": self.description,
             **self.metadata,
         }
@@ -142,6 +147,7 @@ class CharacterRegistry:
                 display_name=str(item.get("display_name") or item.get("name") or character_id),
                 voice=item.get("voice"),
                 avatar=item.get("avatar"),
+                avatar_thumbnail=item.get("avatar_thumbnail"),
                 description=str(item.get("description", "")),
                 brain_path=item.get("brain_path"),
                 metadata=metadata,
