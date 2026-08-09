@@ -96,6 +96,10 @@ class CharacterRegistry:
         character = self._characters.get(character_id)
         return character.brain_path if character else None
 
+    def ids(self) -> list[str]:
+        """All registered character ids — used by `lore_ingest.py --all`."""
+        return list(self._characters.keys())
+
     def _load_characters(self) -> dict[str, Character]:
         loaded = self._load_from_json()
         if loaded:
