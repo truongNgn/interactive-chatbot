@@ -1,8 +1,9 @@
-"""Character registry fallback for multi-character chat metadata.
+"""Character registry for multi-character roleplay metadata.
 
-The original registry implementation is not present in this checkout. This
-module keeps the public API used by the gateway/persona code stable while
-loading character metadata from docs/characters/characters.json when available.
+Loads character metadata from characters.json at the repo root (NOT under
+docs/, which is gitignored — character data must be tracked and shipped in
+deploys so users can pick a character in production). Falls back to a
+single settings-derived character if the registry file is missing/empty.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BACKEND_ROOT.parent
-DEFAULT_REGISTRY_PATH = PROJECT_ROOT / "docs" / "characters" / "characters.json"
+DEFAULT_REGISTRY_PATH = PROJECT_ROOT / "characters" / "characters.json"
 
 # Fields that are internal wiring, not display data — never leak these into
 # public_dict()/metadata, since character_registry.get()/list_public() feed
