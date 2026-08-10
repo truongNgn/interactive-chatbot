@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 're
 import { API_BASE_URL } from '../config/backend'
 import { useSpeechInput } from '../hooks/useSpeechInput'
 import { useChatStore } from '../store/chatStore'
+import { CharacterPicker } from './CharacterPicker'
 import type { Emotion } from '../types'
 
 interface ChatInterfaceProps {
@@ -166,6 +167,11 @@ export function ChatInterface({
 
   return (
     <div style={s.container}>
+      {/* ── Header: current character + switcher ─────────── */}
+      <div style={s.header}>
+        <CharacterPicker />
+      </div>
+
       {/* ── Message list / Empty state ─────────────────── */}
       <div style={s.messageList}>
         {isEmpty ? (
@@ -325,6 +331,13 @@ const s: Record<string, React.CSSProperties> = {
     background: 'rgba(0,0,0,0.42)',
     backdropFilter: 'blur(6px)',
     overflow: 'hidden',
+  },
+  header: {
+    flex: '0 0 auto',
+    display: 'flex',
+    alignItems: 'center',
+    padding: '10px 16px',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
   },
   messageList: {
     flex: 1,

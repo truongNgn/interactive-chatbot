@@ -80,11 +80,15 @@ function AssetDropdown({
 }
 
 export function RightSidebar() {
-  const { currentModel, currentVoice, authToken, setCurrentModel, setCurrentVoice } = useChatStore()
+  const { currentModel, currentVoice, authToken, characters, currentCharacterId, setCurrentModel, setCurrentVoice } = useChatStore()
   const [models, setModels] = useState<string[]>([])
   const [voices, setVoices] = useState<string[]>([])
   const [customModelName, setCustomModelName] = useState<string | null>(null)
+  const [customModelFile, setCustomModelFile] = useState<File | null>(null)
   const [uploadingVoice, setUploadingVoice] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+
+  const currentCharacter = characters.find((c) => c.id === currentCharacterId)
 
   useEffect(() => {
     // Fetch models
@@ -120,7 +124,39 @@ export function RightSidebar() {
     if (file) {
       const url = URL.createObjectURL(file)
       setCustomModelName(file.name)
+      setCustomModelFile(file)
       setCurrentModel(url)
+    }
+  }
+
+  const handleSaveAvatarForCharacter = async () => {
+    if (!customModelFile || !currentCharacterId) return
+    setUploadingAvatar(true)
+    const formData = new FormData()
+    formData.append('file', customModelFile)
+    const headers: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {}
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/characters/${currentCharacterId}/avatar`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      })
+      if (res.status === 401) {
+        useChatStore.getState().logout()
+        return
+      }
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      // Replace the local blob URL with the persisted server URL so it
+      // survives beyond this browser tab's lifetime.
+      if (data.avatar) setCurrentModel(data.avatar)
+      setCustomModelFile(null)
+    } catch (err) {
+      console.error('Failed to save custom avatar', err)
+      alert('Failed to save avatar: ' + (err instanceof Error ? err.message : String(err)))
+    } finally {
+      setUploadingAvatar(false)
     }
   }
 
@@ -200,7 +236,20 @@ export function RightSidebar() {
           </label>
           {customModelName && <span style={s.fileName}>{customModelName}</span>}
         </div>
-        
+
+        {customModelFile && currentCharacter && (
+          <div style={s.uploadRow}>
+            <button
+              type="button"
+              onClick={handleSaveAvatarForCharacter}
+              disabled={uploadingAvatar}
+              style={s.saveAvatarBtn}
+            >
+              {uploadingAvatar ? 'Saving...' : `💾 Save as ${currentCharacter.display_name}'s avatar`}
+            </button>
+          </div>
+        )}
+
         <AssetDropdown
           label="Voice"
           value={currentVoice}
@@ -423,5 +472,17 @@ const s: Record<string, React.CSSProperties> = {
     textOverflow: 'ellipsis',
     maxWidth: 145,
     fontStyle: 'italic',
+  },
+  saveAvatarBtn: {
+    width: '100%',
+    background: 'rgba(96,165,250,0.12)',
+    border: '1px solid rgba(96,165,250,0.35)',
+    borderRadius: 6,
+    padding: '7px 10px',
+    color: '#93c5fd',
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
   },
 }

@@ -124,14 +124,18 @@ export function useWebSocket(onClearQueue?: () => void) {
       console.warn('[WS] Not connected, cannot send message')
       return
     }
-    const { userId, activeSessionId, ttsEnabled, routerEnabled, currentVoice } = useChatStore.getState()
+    const { userId, activeSessionId, currentCharacterId, ttsEnabled, routerEnabled, currentVoice } = useChatStore.getState()
     const payload: UserMessagePayload = {
       type: 'user_message',
       text,
       user_id: userId,
       session_id: activeSessionId,
+      character_id: currentCharacterId,
       tts_enabled: ttsEnabled,
       router_enabled: routerEnabled,
+      // currentVoice stays '' unless the user manually picked one for this
+      // character — backend resolves the character's own voice when this
+      // is falsy (app/gateway/schemas.py).
       voice: currentVoice,
     }
     ws.send(JSON.stringify(payload))

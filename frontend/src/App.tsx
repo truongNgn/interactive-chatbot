@@ -44,6 +44,10 @@ function AuthenticatedApp() {
     if (authToken) void refreshServerConversations()
   }, [authToken, refreshServerConversations])
 
+  useEffect(() => {
+    void useChatStore.getState().fetchCharacters()
+  }, [])
+
   // New session: update store + reconnect WS với sessionId mới không cần thiết
   // vì useWebSocket luôn đọc activeSessionId từ store khi gửi message.
   const handleNewSession = useCallback(() => {

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { API_BASE_URL } from '../config/backend'
-import type { AudioChunkPayload, AuthUser, ChatMessage, ConversationDetail, ConversationSummary, Emotion, LlmProvider, Project, Session, WarmupStatus, WsStatus } from '../types'
+import type { AudioChunkPayload, AuthUser, Character, CharactersResponse, ChatMessage, ConversationDetail, ConversationSummary, Emotion, LlmProvider, Project, Session, WarmupStatus, WsStatus } from '../types'
 
 const MAX_SESSIONS = 100 // Increased for better project management
 const SESSIONS_KEY = 'chatbot_sessions'
@@ -157,6 +157,10 @@ interface ChatState {
   currentModel: string
   currentVoice: string
 
+  // Character roleplay (multi-character brain — see docs/RAG_character_roleplay_implementation_plan.md Stage 7)
+  characters: Character[]
+  currentCharacterId: string
+
   // LLM provider
   llmProvider: LlmProvider
 
@@ -190,6 +194,9 @@ interface ChatState {
   setCurrentEmotion: (emotion: Emotion) => void
   setCurrentModel: (model: string) => void
   setCurrentVoice: (voice: string) => void
+  fetchCharacters: () => Promise<void>
+  setCharacter: (characterId: string) => void
+  loadCharacterAvatarOverride: (characterId: string) => Promise<void>
   setLlmProvider: (provider: LlmProvider) => void
   setTtsEnabled: (val: boolean) => void
   setRouterEnabled: (val: boolean) => void
@@ -237,6 +244,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentEmotion: 'neutral',
   currentModel: '',
   currentVoice: '',
+  characters: [],
+  currentCharacterId: '',
   llmProvider: 'ollama',
   ttsEnabled: loadTtsEnabled(),
   routerEnabled: loadRouterEnabled(),
@@ -286,6 +295,95 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setCurrentModel: (model) => set({ currentModel: model }),
 
   setCurrentVoice: (voice) => set({ currentVoice: voice }),
+
+  fetchCharacters: async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/characters`)
+      if (!response.ok) return
+      const data = (await response.json()) as CharactersResponse
+      if (!data.characters || data.characters.length === 0) return
+
+      set((state) => {
+        // Keep the current selection if it's still valid (e.g. a re-fetch
+        // after reconnect); otherwise fall back to the server's default, or
+        // the first character if even that isn't present.
+        const stillValid = state.currentCharacterId
+          && data.characters.some((c) => c.id === state.currentCharacterId)
+        const nextCharacterId = stillValid
+          ? state.currentCharacterId
+          : (data.default || data.characters[0].id)
+
+        // Only set the avatar from the character on first load (currentModel
+        // still empty) — don't clobber a model the user already picked
+        // manually via the RightSidebar dropdown/upload.
+        const nextCharacter = data.characters.find((c) => c.id === nextCharacterId)
+        const avatarPatch = !state.currentModel && nextCharacter?.avatar
+          ? { currentModel: nextCharacter.avatar }
+          : {}
+
+        return {
+          characters: data.characters,
+          currentCharacterId: nextCharacterId,
+          ...avatarPatch,
+        }
+      })
+
+      // Apply the user's saved custom avatar for the resolved character, if
+      // any, on top of the character's default set above.
+      const resolvedId = get().currentCharacterId
+      if (resolvedId) void get().loadCharacterAvatarOverride(resolvedId)
+    } catch (error) {
+      console.error('[chatStore] Failed to fetch characters', error)
+    }
+  },
+
+  setCharacter: (characterId) => {
+    const character = get().characters.find((c) => c.id === characterId)
+    if (!character || characterId === get().currentCharacterId) return
+
+    // New session on character switch, for two reasons:
+    // 1. UX — a single chat thread shouldn't visibly mix two characters.
+    // 2. Correctness — the backend Postgres conversation record is keyed by
+    //    session_id and *overwrites* its stored character_id on every
+    //    message (see conversation_store.py::ensure_conversation); reusing
+    //    a session_id across a switch would relabel that conversation's
+    //    character_id and mix both characters' messages under it.
+    // (Turn-history/LangChain memory is already isolated server-side by
+    // character_id regardless — see Stage 6 — this is the UI-level guard.)
+    set({
+      currentCharacterId: characterId,
+      currentVoice: '', // let the backend resolve this character's own voice
+      ...(character.avatar ? { currentModel: character.avatar } : {}),
+    })
+    get().createNewSession()
+    // Refine currentModel to the user's saved custom avatar for this
+    // character, if one exists — set() above already applied the
+    // character's default so the UI updates immediately either way.
+    void get().loadCharacterAvatarOverride(characterId)
+  },
+
+  loadCharacterAvatarOverride: async (characterId) => {
+    const token = get().authToken
+    if (!token) return
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/characters/${characterId}/avatar`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (response.status === 401) {
+        get().logout()
+        return
+      }
+      if (!response.ok) return
+      const data = (await response.json()) as { avatar: string | null }
+      // Guard against a stale response landing after the user switched
+      // characters again while this request was in flight.
+      if (data.avatar && get().currentCharacterId === characterId) {
+        set({ currentModel: data.avatar })
+      }
+    } catch (error) {
+      console.error('[chatStore] Failed to load avatar override', error)
+    }
+  },
 
   setLlmProvider: (provider) => set({ llmProvider: provider }),
 

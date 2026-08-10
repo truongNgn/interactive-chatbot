@@ -77,7 +77,7 @@ async def generate_node(state: ChatState) -> dict:
     full_response = ""
     config = {
         "configurable": {
-            "session_id": build_history_key(state["user_id"], state["session_id"]),
+            "session_id": build_history_key(state["user_id"], state["character_id"], state["session_id"]),
         }
     }
 

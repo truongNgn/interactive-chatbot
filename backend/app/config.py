@@ -98,12 +98,22 @@ class Settings(BaseSettings):
     lore_chunk_threshold_words: int = 3000     # Tier 2 threshold
     lore_chunk_size_chars: int = 1500
     lore_chunk_overlap_chars: int = 200
+    # Hard cap on total lore text injected into the prompt (pinned sections
+    # first, then retrieved ones) — a fixed budget until model context_window
+    # metadata exists to size this dynamically (see docs/MODEL_MANAGEMENT_PLAN.md).
+    lore_max_context_chars: int = 6000
 
     # Long-term Memory — ChromaDB (Stage 3)
     memory_enabled: bool = True
     memory_fast_path_enabled: bool = True
     chroma_path: str = "./chroma_data"
-    embedding_model: str = "nomic-embed-text"
+
+    # Embedding — deliberately independent from llm_provider (see
+    # docs/MODEL_MANAGEMENT_PLAN.md §2.12). Switching the chat LLM must never
+    # silently switch the embedding space; that makes every prior Chroma
+    # vector unsearchable without any error surfacing.
+    embedding_provider: str = "ollama"   # "ollama" | "gemini"
+    embedding_model: str = "nomic-embed-text"  # used when embedding_provider == "ollama"
     memory_retrieval_count: int = 5
     memory_dedup_threshold: float = 0.95
     memory_recency_weight: float = 0.3
