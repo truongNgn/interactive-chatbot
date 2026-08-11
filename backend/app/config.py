@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # LLM Provider selection: "ollama" | "vllm" | "deepseek" | "gemini"
     llm_provider: str = "ollama"
 
+    # Deployment mode: "local" | "cloud"
+    deployment_mode: str = "local"
+
     # TTS Provider selection: "elevenlabs" | "google-cloud" | "xtts" | ""
     tts_provider: str = ""
 

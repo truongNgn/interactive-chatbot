@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { API_BASE_URL } from '../config/backend'
-import type { AudioChunkPayload, AuthUser, Character, CharactersResponse, ChatMessage, ConversationDetail, ConversationSummary, Emotion, LlmProvider, Project, Session, WarmupStatus, WsStatus } from '../types'
+import type { AudioChunkPayload, AuthUser, Character, CharactersResponse, ChatMessage, ConversationDetail, ConversationSummary, Emotion, LlmProvider, Project, Session, WarmupStatus, WsStatus, ModelsCatalog } from '../types'
 
 const MAX_SESSIONS = 100 // Increased for better project management
 const SESSIONS_KEY = 'chatbot_sessions'
@@ -10,6 +10,16 @@ const ROUTER_KEY = 'chatbot_router_enabled'
 const AUTO_SEND_VOICE_KEY = 'chatbot_auto_send_voice_transcript'
 const AUTH_TOKEN_KEY = 'chatbot_auth_token'
 const AUTH_USER_KEY = 'chatbot_auth_user'
+const MODEL_KEY = 'chatbot_llm_provider'
+
+function loadLlmProvider(): string {
+  try {
+    return localStorage.getItem(MODEL_KEY) ?? 'ollama'
+  } catch {
+    return 'ollama'
+  }
+}
+
 function generateTitle(text: string): string {
   const words = text.trim().split(/\s+/).slice(0, 8).join(' ')
   return words.length > 0 ? words : 'New Chat'
@@ -163,6 +173,8 @@ interface ChatState {
 
   // LLM provider
   llmProvider: LlmProvider
+  modelsCatalog: ModelsCatalog | null
+  fetchModelsCatalog: () => Promise<void>
 
   // TTS toggle
   ttsEnabled: boolean
@@ -246,7 +258,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentVoice: '',
   characters: [],
   currentCharacterId: '',
-  llmProvider: 'ollama',
+  llmProvider: loadLlmProvider(),
+  modelsCatalog: null,
   ttsEnabled: loadTtsEnabled(),
   routerEnabled: loadRouterEnabled(),
   autoSendVoiceTranscript: loadAutoSendVoiceTranscript(),
@@ -385,7 +398,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  setLlmProvider: (provider) => set({ llmProvider: provider }),
+  setLlmProvider: (provider) => {
+    set({ llmProvider: provider })
+    try { localStorage.setItem(MODEL_KEY, provider) } catch {}
+  },
+
+  fetchModelsCatalog: async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/llm/models`)
+      if (!response.ok) return
+      const data = (await response.json()) as ModelsCatalog
+      set({ modelsCatalog: data })
+      
+      const flatModels = data.groups.flatMap((g) => g.models.map((m) => m.id))
+      const current = get().llmProvider
+      
+      const exists = flatModels.includes(current) || ['ollama', 'qwen', 'vllm', 'deepseek', 'gemini'].includes(current)
+      if (!exists && flatModels.length > 0) {
+        const fallback = data.default || flatModels[0]
+        console.warn(`[chatStore] Model '${current}' is not available. Falling back to default: '${fallback}'`)
+        alert(`Model '${current}' is not available. Falling back to '${fallback}'`)
+        get().setLlmProvider(fallback)
+      }
+    } catch (error) {
+      console.error('[chatStore] Failed to fetch models catalog', error)
+    }
+  },
 
   setTtsEnabled: (val) => {
     set({ ttsEnabled: val })

@@ -35,6 +35,8 @@ from app.session_history import session_history_ready
 from app.stt_handler import BaseSTTHandler, get_stt_handler, validate_audio_upload
 from app.tts_handler import BaseTTSHandler, get_tts_handler
 from app.warmup import start_background_warmup, warmup_state
+from app.model_registry import model_registry
+from app.lc_chain import resolve_model_info
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -50,6 +52,31 @@ SUPPORTED_AVATAR_SUFFIXES = {".glb"}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ── Startup Guard Secrets Check (Stage 9) ──────────────────────────────────
+    if settings.deployment_mode == "cloud":
+        missing_keys = []
+        if not settings.gemini_api_key:
+            missing_keys.append("GEMINI_API_KEY")
+        if not settings.deepseek_api_key:
+            missing_keys.append("DEEPSEEK_API_KEY")
+        if settings.auth_token_secret == "change-me-dev-secret":
+            missing_keys.append("AUTH_TOKEN_SECRET (cannot be the default 'change-me-dev-secret')")
+        if missing_keys:
+            error_msg = f"Startup Guard: Missing required cloud secrets/keys: {', '.join(missing_keys)} in deployment_mode='cloud'."
+            logger.critical(error_msg)
+            raise ValueError(error_msg)
+    else:
+        missing_keys = []
+        if not settings.gemini_api_key:
+            missing_keys.append("GEMINI_API_KEY")
+        if not settings.deepseek_api_key:
+            missing_keys.append("DEEPSEEK_API_KEY")
+        if missing_keys:
+            logger.warning(
+                "Startup Guard: Missing API keys in local mode: %s. Cloud models will not be functional.",
+                ", ".join(missing_keys),
+            )
+
     # ── LangSmith Observability status check ──────────────────────────────────
     import os
     tracing_enabled = os.environ.get("LANGCHAIN_TRACING_V2") or os.environ.get("LANGSMITH_TRACING")
@@ -454,16 +481,103 @@ async def upload_character_avatar(
     return {"avatar": f"{base}/static/avatars/{auth.user_id}/{character_id}.glb"}
 
 
-@app.get("/api/models")
-async def get_models():
+@app.get("/api/avatars")
+async def get_avatars():
     models_dir = PROJECT_ROOT / "frontend" / "public" / "models"
     if not models_dir.exists():
-        return {"models": []}
-    models = sorted(
+        return {"avatars": []}
+    avatars = sorted(
         f.name for f in models_dir.iterdir()
         if f.is_file() and f.suffix.lower() == ".glb"
     )
-    return {"models": models}
+    return {"avatars": avatars}
+
+
+@app.get("/api/llm/models")
+async def get_llm_models():
+    # 1. Discover local models (populates registry with local Ollama models if in local mode)
+    if settings.deployment_mode == "local":
+        await model_registry.discover_local_models()
+
+    # 2. Ping check endpoints concurrently
+    import httpx
+    async def is_reachable(runtime: str, model_id: str) -> bool:
+        if runtime == "ollama":
+            try:
+                async with httpx.AsyncClient(timeout=1.0) as client:
+                    res = await client.get(settings.ollama_host)
+                    return res.status_code == 200
+            except Exception:
+                return False
+        elif runtime == "openai-compatible":
+            if model_id == "deepseek-chat":
+                return True
+            else:
+                try:
+                    async with httpx.AsyncClient(timeout=1.0) as client:
+                        res = await client.get(f"{settings.vllm_base_url}/models")
+                        return res.status_code == 200
+                except Exception:
+                    return False
+        return True
+
+    # Get candidate models
+    candidates = model_registry.list_all()
+
+    # Filter and check reachability concurrently
+    tasks = []
+    filtered_candidates = []
+    for info in candidates:
+        # Condition 1: deployment mode check
+        if settings.deployment_mode == "cloud" and info.deployment == "local":
+            continue
+
+        # Condition 2: requires keys check
+        has_requires = True
+        for req in info.requires:
+            if not getattr(settings, req, None):
+                has_requires = False
+                break
+        if not has_requires:
+            continue
+
+        filtered_candidates.append(info)
+        tasks.append(is_reachable(info.runtime, info.id))
+
+    reachability_results = await asyncio.gather(*tasks)
+
+    # Group the models
+    groups_dict = {
+        "cloud-api": {"label": "Cloud API", "models": []},
+        "self-hosted": {"label": "Self-hosted", "models": []},
+        "local": {"label": "Local (Ollama)", "models": []},
+    }
+
+    for info, reachable in zip(filtered_candidates, reachability_results):
+        if not reachable:
+            continue
+
+        dep = info.deployment
+        if dep in groups_dict:
+            groups_dict[dep]["models"].append({
+                "id": info.id,
+                "display_name": info.display_name,
+                "tier": info.tier,
+            })
+
+    # Remove empty groups
+    groups = [g for g in groups_dict.values() if g["models"]]
+
+    # Get default model ID
+    try:
+        default_model = resolve_model_info(None, None).id
+    except Exception:
+        default_model = "ollama-large"
+
+    return {
+        "default": default_model,
+        "groups": groups,
+    }
 
 
 @app.get("/api/stt/status")

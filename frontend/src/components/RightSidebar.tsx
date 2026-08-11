@@ -92,11 +92,11 @@ export function RightSidebar() {
 
   useEffect(() => {
     // Fetch models
-    fetch(`${API_BASE_URL}/api/models`)
+    fetch(`${API_BASE_URL}/api/avatars`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.models && data.models.length > 0) {
-          setModels(data.models)
+        if (data.avatars && data.avatars.length > 0) {
+          setModels(data.avatars)
         }
       })
       .catch((err) => console.error('Failed to fetch models', err))
