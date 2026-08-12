@@ -553,10 +553,22 @@ async def get_llm_models():
         "local": {"label": "Local (Ollama)", "models": []},
     }
 
-    for info, reachable in zip(filtered_candidates, reachability_results):
-        if not reachable:
-            continue
+    reachable_models = [info for info, reachable in zip(filtered_candidates, reachability_results) if reachable]
 
+    # Deduplicate local models: if a model was dynamically discovered (id starts with "ollama:"),
+    # hide the static catalog models ("ollama-large", "ollama-small") with the same underlying model name.
+    discovered_model_names = {
+        info.model.lower().strip() for info in reachable_models
+        if info.id.startswith("ollama:")
+    }
+
+    final_models = []
+    for info in reachable_models:
+        if info.id in ("ollama-large", "ollama-small") and info.model.lower().strip() in discovered_model_names:
+            continue
+        final_models.append(info)
+
+    for info in final_models:
         dep = info.deployment
         if dep in groups_dict:
             groups_dict[dep]["models"].append({
@@ -573,6 +585,16 @@ async def get_llm_models():
         default_model = resolve_model_info(None, None).id
     except Exception:
         default_model = "ollama-large"
+
+    # If the default model ID is one of the skipped static models, map it to the discovered model ID
+    if default_model in ("ollama-large", "ollama-small"):
+        static_info = model_registry.get(default_model)
+        if static_info:
+            target_model_name = static_info.model.lower().strip()
+            for info in final_models:
+                if info.id.startswith("ollama:") and info.model.lower().strip() == target_model_name:
+                    default_model = info.id
+                    break
 
     return {
         "default": default_model,
